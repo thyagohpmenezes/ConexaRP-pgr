@@ -83,7 +83,7 @@ function AppContent() {
                            });
 
       if (shouldUpdate) {
-        console.log('[ConexaRP] Syncing remote assessments to local state');
+        console.log('[ConexaRP] Syncing remote assessments to local state', filteredAssessments);
         setAssessments(filteredAssessments);
       }
     }

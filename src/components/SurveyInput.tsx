@@ -182,10 +182,16 @@ export default function SurveyInput({ domains, setDomains, checklist, setCheckli
         if (sectorCol) {
           Object.keys(rowsBySector).filter(k=>k!=='_global_').forEach(sk => {
             const sRows = rowsBySector[sk];
-            const base = DOMAINS.map(d=>({...d,employeeMean:0,managerMean:0,criticalFrequency:0}));
+            const base = newSectors[sk]?.domains || DOMAINS.map(d=>({...d,employeeMean:0,managerMean:0,criticalFrequency:0}));
             const sDomains = calcDomains(sRows, base);
             const mean = sDomains.filter(d=>d.employeeMean>0).reduce((a,d)=>a+d.employeeMean,0) / Math.max(1,sDomains.filter(d=>d.employeeMean>0).length);
-            newSectors[sk] = { ...newSectors[sk], domains:sDomains, rowCount:sRows.length, employeeOverallMean: isEmp ? mean : (newSectors[sk]?.employeeOverallMean||0), managerOverallMean: !isEmp ? mean : (newSectors[sk]?.managerOverallMean||0) };
+            newSectors[sk] = { 
+              ...newSectors[sk], 
+              domains: sDomains, 
+              rowCount: isEmp ? sRows.length : (newSectors[sk]?.rowCount || sRows.length), 
+              employeeOverallMean: isEmp ? mean : (newSectors[sk]?.employeeOverallMean || 0), 
+              managerOverallMean: !isEmp ? mean : (newSectors[sk]?.managerOverallMean || 0) 
+            };
           });
           const found = Object.keys(rowsBySector).filter(k=>k!=='_global_');
           if (onNewSectors && found.length) onNewSectors(found);
