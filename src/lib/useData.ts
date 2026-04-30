@@ -65,10 +65,10 @@ export function useData() {
   const saveAssessment = async (assessment: Partial<Assessment> & { id: string }) => {
     try {
       const docRef = doc(db, 'assessments', assessment.id);
+      const { id, ...data } = assessment;
       
-      // we need to inject updatedAt
       await setDoc(docRef, {
-        ...assessment,
+        ...data,
         updatedAt: serverTimestamp()
       }, { merge: true });
     } catch (e) {

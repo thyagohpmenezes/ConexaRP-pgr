@@ -10,6 +10,7 @@ interface SectorAnalysisViewProps {
   assessment: Assessment;
   managerOverallMeanGlobal: number;
   checklistCriticalityGlobal: number;
+  defaultExpandedAll?: boolean;
 }
 
 const RISK_LABEL = (v: number) => v >= 17 ? 'CRÍTICO' : v >= 10 ? 'ALTO' : v >= 6 ? 'MODERADO' : 'BAIXO';
@@ -38,7 +39,7 @@ function MiniBar({ value, max = 5, color }: { value: number; max?: number; color
   );
 }
 
-export default function SectorAnalysisView({ assessment, managerOverallMeanGlobal, checklistCriticalityGlobal }: SectorAnalysisViewProps) {
+export default function SectorAnalysisView({ assessment, managerOverallMeanGlobal, checklistCriticalityGlobal, defaultExpandedAll }: SectorAnalysisViewProps) {
   const [expandedSector, setExpandedSector] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<'name' | 'risk' | 'sample'>('risk');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
@@ -147,7 +148,7 @@ export default function SectorAnalysisView({ assessment, managerOverallMeanGloba
               {sorted.map(([name, data]) => {
                 const { tScore, rScore: rs, eMean } = calcMetrics(data, managerOverallMeanGlobal, checklistCriticalityGlobal);
                 const diff = tScore - triangulationScore;
-                const isOpen = expandedSector === name;
+                const isOpen = defaultExpandedAll || expandedSector === name;
                 const criticalDomains = (data.domains || []).filter((d: DomainData) => d.employeeMean >= 3.0);
                 return (
                   <React.Fragment key={name}>

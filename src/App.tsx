@@ -502,12 +502,10 @@ function AppContent() {
                           sectorBreakdown={currentAssessment.sectorBreakdown}
                           setSectorBreakdown={updateSectorBreakdown}
                           onNewSectors={handleNewSectors}
-                          onComplete={(newDomains, newSectorBreakdown) => {
+                          onComplete={(newDomains, newSectors) => {
                             if (!currentAssessment) return;
-                            const payload = { id: currentAssessment.id, domains: newDomains, sectorBreakdown: newSectorBreakdown };
-                            setAssessments(prev => prev.map(a => a.id === currentAssessment.id ? { ...a, ...payload } : a));
-                            saveAssessment(payload);
-                            console.log('[ConexaRP] Atomic save ✅ sectors:', Object.keys(newSectorBreakdown));
+                            setAssessments(prev => prev.map(a => a.id === currentAssessment.id ? { ...a, domains: newDomains, sectorBreakdown: newSectors } : a));
+                            saveAssessment({ id: currentAssessment.id, domains: newDomains, sectorBreakdown: newSectors });
                           }}
                         />
                       </motion.div>
@@ -566,10 +564,37 @@ function AppContent() {
                           employeeOverallMean={employeeOverallMean}
                           managerOverallMean={managerOverallMean}
                           onConclude={() => {
-                             setActiveView('dashboard');
-                             setAssessments(prev => prev.map(a => a.id === currentAssessment.id ? { ...a, status: AssessmentStatus.COMPLETED } : a));
-                             saveAssessment({ id: currentAssessment.id, status: AssessmentStatus.COMPLETED });
-                          }}
+                              const latest = assessmentsRef.current.find(a => a.id === activeAssessmentId);
+                              if (!latest) return;
+                              
+                              // 1. Calcular scores baseados SEMPRE nos dados MAIS RECENTES para persistência
+                              const colabScore = (employeeOverallMean - 1) / 4;
+                              const gestorScore = managerOverallMean > 0 ? (managerOverallMean - 1) / 4 : 0;
+                              const checkScore = checklistCriticality;
+ 
+                              let weightedSum = 0;
+                              let weightTotal = 0;
+                              if (employeeOverallMean > 0) { weightedSum += colabScore * 4; weightTotal += 4; }
+                              if (managerOverallMean > 0) { weightedSum += gestorScore * 3; weightTotal += 3; }
+                              weightedSum += checkScore * 4; weightTotal += 4;
+ 
+                              const tScore = weightTotal > 0 ? weightedSum / weightTotal : 0;
+                              const prob = Math.min(5, Math.max(1, Math.ceil(tScore * 5)));
+                              const rScore = prob * prob;
+ 
+                              const finalData = { 
+                                 ...latest, 
+                                 status: AssessmentStatus.COMPLETED,
+                                 triangulationScore: tScore,
+                                 riskScore: rScore,
+                                 probability: prob,
+                                 severity: prob
+                              };
+ 
+                              setAssessments(prev => prev.map(a => a.id === latest.id ? finalData : a));
+                              saveAssessment(finalData);
+                              setActiveView('dashboard');
+                           }}
                         />
                       </motion.div>
                     )}

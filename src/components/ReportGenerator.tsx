@@ -32,7 +32,30 @@ export default function ReportGenerator({
    onConclude
 }: ReportGeneratorProps) {
 
-   const { domains, status, triangulationScore, grauConvergencia = 'FRACA', riskScore, probability, severity } = assessment;
+   // 0. Consolidar domínios se os globais estiverem vazios (resiliência para análise setorial pura)
+   const getEffectiveDomains = () => {
+      if (assessment.domains && assessment.domains.some(d => d.employeeMean > 0)) {
+         return assessment.domains;
+      }
+      
+      // Se global está vazio, consolidar dos setores
+      if (assessment.sectorBreakdown) {
+         const sectors = Object.values(assessment.sectorBreakdown);
+         if (sectors.length > 0) {
+            // Usar o primeiro setor como base de estrutura e calcular médias
+            const baseDomains = [...sectors[0].domains];
+            return baseDomains.map(base => {
+               const values = sectors.map(s => s.domains.find(d => d.id === base.id)?.employeeMean || 0).filter(v => v > 0);
+               const avg = values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+               return { ...base, employeeMean: avg, managerMean: avg }; // Simplificado para visualização
+            });
+         }
+      }
+      return assessment.domains;
+   };
+
+   const effectiveDomains = getEffectiveDomains();
+   const { status, triangulationScore, grauConvergencia = 'FRACA', riskScore, probability, severity } = assessment;
 
    const getRiskLabel = (val: number) => {
       if (val >= 17) return 'CRÍTICO';
@@ -46,7 +69,7 @@ export default function ReportGenerator({
       const inventory: Record<string, { rowCount: number, hazards: any[] }> = {};
 
       // 1. Primeiro, capturar o Inventário Geral (Empresa)
-      const globalCritical = domains.filter(d => d.employeeMean >= 3.0);
+      const globalCritical = effectiveDomains.filter(d => d.employeeMean >= 3.0);
       const globalHazards = globalCritical.flatMap(cd => HAZARD_MASTER.filter(h => h.domainId === cd.id));
       
       if (globalHazards.length > 0) {
@@ -92,7 +115,7 @@ export default function ReportGenerator({
    const riskColor = riskScore >= 17 ? 'text-rose-600' : riskScore >= 10 ? 'text-orange-600' : riskScore >= 6 ? 'text-amber-600' : 'text-emerald-600';
    const riskLabel = getRiskLabel(riskScore);
 
-   const divergentDomains = domains.filter(d => Math.abs(d.employeeMean - d.managerMean) > 1.0);
+   const divergentDomains = effectiveDomains.filter(d => Math.abs(d.employeeMean - d.managerMean) > 1.0);
 
    const exportToExcel = () => {
       const workbook = XLSX.utils.book_new();
@@ -340,13 +363,22 @@ export default function ReportGenerator({
 
          {/* Botões de Conclusão */}
          {status !== 'CONCLUÍDA' && (
-            <div className="flex justify-center border-t border-dashed border-slate-200 pt-8 no-print">
+            <div className="flex justify-center border-t border-dashed border-slate-200 pt-12 no-print pb-20">
                <button
-                  onClick={onConclude}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-black px-10 py-5 rounded-2xl uppercase tracking-widest text-xs flex items-center gap-4 transition-all shadow-xl shadow-emerald-600/30 active:scale-95"
+                  onClick={() => {
+                     const btn = document.getElementById('btn-conclude');
+                     if (btn) {
+                        btn.innerHTML = '<span class="animate-spin">🌀</span> SALVANDO NO BANCO...';
+                        btn.style.opacity = '0.7';
+                        btn.style.pointerEvents = 'none';
+                     }
+                     onConclude?.();
+                  }}
+                  id="btn-conclude"
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-black px-12 py-6 rounded-2xl uppercase tracking-widest text-sm flex items-center gap-4 transition-all shadow-2xl shadow-emerald-600/40 active:scale-95 group"
                >
-                  <CheckCircle size={22} />
-                  Concluir e Finalizar PGR
+                  <CheckCircle size={24} className="group-hover:scale-110 transition-transform" />
+                  Salvar e Concluir Avaliação PGR
                </button>
             </div>
          )}
