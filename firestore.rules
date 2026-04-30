@@ -1,0 +1,158 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() { return request.auth != null; }
+    function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
+    
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+    
+    function getUserCompanyId() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.companyId;
+    }
+    
+    function isSuperAdmin() {
+      return isVerified() && (
+        getUserRole() == 'SuperAdmin' || 
+        request.auth.token.email == 'thyagohpmenezes@gmail.com'
+      );
+    }
+    
+    function isTechnicalStaff() {
+      return isVerified() && (getUserRole() == 'TechnicalResponsable' || getUserRole() == 'Analyst' || getUserRole() == 'SuperAdmin');
+    }
+    
+    function isClient(docCompanyId) {
+      return isVerified() && getUserRole() == 'Client' && getUserCompanyId() == docCompanyId;
+    }
+
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    
+    function isValidId(id) { 
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
+    }
+    
+    // Validations
+    function isValidUser(data) {
+      return data.keys().hasAll(['email', 'role', 'createdAt']) &&
+        data.email is string && data.email.size() <= 200 &&
+        data.role is string && data.role in ['SuperAdmin', 'TechnicalResponsable', 'Analyst', 'Client'] &&
+        data.createdAt == request.time;
+    }
+
+    function isValidCompany(data) {
+      return data.keys().hasAll(['name', 'cnpj', 'ownerId', 'createdAt', 'updatedAt']) &&
+        data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+        data.cnpj is string && data.cnpj.size() > 0 && data.cnpj.size() <= 20 &&
+        data.ownerId == request.auth.uid &&
+        data.createdAt == request.time && data.updatedAt == request.time;
+    }
+
+    function isValidUnit(data) {
+      return data.keys().hasAll(['companyId', 'name', 'createdAt', 'updatedAt']) &&
+        data.companyId is string && data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+        data.createdAt == request.time && data.updatedAt == request.time;
+    }
+
+    function isValidSector(data) {
+      return data.keys().hasAll(['companyId', 'unitId', 'name', 'ges', 'createdAt', 'updatedAt']) &&
+        data.companyId is string && data.unitId is string &&
+        data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+        data.ges is list && data.ges.size() <= 100 &&
+        data.createdAt == request.time && data.updatedAt == request.time;
+    }
+
+    function isValidAssessment(data) {
+      return data.keys().hasAll(['companyId', 'unitId', 'sectorId', 'gesId', 'status', 'creatorId', 'createdAt', 'updatedAt']) &&
+        data.companyId is string && data.unitId is string &&
+        data.sectorId is string && data.gesId is string &&
+        data.status is string && data.status in ["PLANEJADA", "EM COLETA", "EM ANÁLISE", "VALIDAÇÃO TÉCNICA", "CONCLUÍDA", "ARQUIVADA"] &&
+        data.creatorId == request.auth.uid &&
+        data.createdAt == request.time && data.updatedAt == request.time;
+    }
+
+    function isValidActionPlan(data) {
+      return data.keys().hasAll(['assessmentId', 'companyId', 'hazardId', 'action', 'responsible', 'deadline', 'status', 'priority', 'creatorId', 'createdAt', 'updatedAt']) &&
+        data.assessmentId is string && data.companyId is string &&
+        data.hazardId is string && data.action is string && data.action.size() <= 500 &&
+        data.responsible is string && data.responsible.size() <= 100 &&
+        data.deadline is string && data.deadline.size() <= 50 &&
+        data.status is string && data.priority is string &&
+        data.creatorId == request.auth.uid &&
+        data.createdAt == request.time && data.updatedAt == request.time;
+    }
+
+    // Rules
+    match /users/{userId} {
+      allow get: if isVerified() && (request.auth.uid == userId || isSuperAdmin());
+      allow list: if isVerified() && isSuperAdmin();
+      allow create: if isVerified() && request.auth.uid == userId && isValidUser(incoming()); 
+      allow update: if isVerified() && isSuperAdmin() &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['role', 'companyId']) &&
+        incoming().role in ['SuperAdmin', 'TechnicalResponsable', 'Analyst', 'Client'];
+      allow delete: if isVerified() && isSuperAdmin();
+    }
+
+    match /companies/{companyId} {
+      allow get: if isVerified() && isValidId(companyId) && (isTechnicalStaff() || isClient(companyId));
+      allow list: if isVerified() && (isTechnicalStaff() || (getUserRole() == 'Client' && resource.id == getUserCompanyId())); 
+      allow create: if isTechnicalStaff() && isValidCompany(incoming());
+      allow update: if isTechnicalStaff() && 
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'cnpj', 'units', 'updatedAt']) &&
+        incoming().updatedAt == request.time &&
+        incoming().name.size() > 0 && incoming().name.size() <= 200;
+      allow delete: if isSuperAdmin();
+      
+      match /units/{unitId} {
+        allow get: if isVerified() && isValidId(companyId) && isValidId(unitId) && (isTechnicalStaff() || isClient(companyId));
+        allow list: if isVerified() && isValidId(companyId) && (isTechnicalStaff() || isClient(companyId));
+        allow create: if isTechnicalStaff() && isValidId(companyId) && isValidUnit(incoming()) && incoming().companyId == companyId;
+        allow update: if isTechnicalStaff() && isValidId(companyId) && isValidId(unitId) &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'updatedAt']) &&
+          incoming().updatedAt == request.time;
+        allow delete: if isSuperAdmin();
+      }
+      
+      match /sectors/{sectorId} {
+        allow get: if isVerified() && isValidId(companyId) && isValidId(sectorId) && (isTechnicalStaff() || isClient(companyId));
+        allow list: if isVerified() && isValidId(companyId) && (isTechnicalStaff() || isClient(companyId));
+        allow create: if isTechnicalStaff() && isValidId(companyId) && isValidSector(incoming()) && incoming().companyId == companyId;
+        allow update: if isTechnicalStaff() && isValidId(companyId) && isValidId(sectorId) &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'ges', 'updatedAt']) &&
+          incoming().ges is list && incoming().ges.size() <= 100 &&
+          incoming().updatedAt == request.time;
+        allow delete: if isSuperAdmin();
+      }
+    }
+
+    match /assessments/{assessmentId} {
+      allow get: if isVerified() && isValidId(assessmentId) && (isTechnicalStaff() || isClient(resource.data.companyId));
+      allow list: if isVerified() && (isTechnicalStaff() || (getUserRole() == 'Client' && resource.data.companyId == getUserCompanyId()));
+      allow create: if isTechnicalStaff() && isValidAssessment(incoming()) && exists(/databases/$(database)/documents/companies/$(incoming().companyId));
+      allow update: if isTechnicalStaff() && isValidId(assessmentId) &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'domains', 'checklist', 'triangulationScore', 'probability', 'severity', 'riskScore', 'updatedAt']) &&
+        incoming().updatedAt == request.time &&
+        incoming().status in ["PLANEJADA", "EM COLETA", "EM ANÁLISE", "VALIDAÇÃO TÉCNICA", "CONCLUÍDA", "ARQUIVADA"];
+      allow delete: if isSuperAdmin();
+    }
+
+    match /actionPlans/{actionPlanId} {
+      allow get: if isVerified() && isValidId(actionPlanId) && (isTechnicalStaff() || isClient(resource.data.companyId));
+      allow list: if isVerified() && (isTechnicalStaff() || (getUserRole() == 'Client' && resource.data.companyId == getUserCompanyId()));
+      allow create: if isTechnicalStaff() && isValidActionPlan(incoming()) && 
+        exists(/databases/$(database)/documents/assessments/$(incoming().assessmentId)) &&
+        get(/databases/$(database)/documents/assessments/$(incoming().assessmentId)).data.companyId == incoming().companyId;
+      allow update: if (isTechnicalStaff() || (isClient(existing().companyId) && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']))) &&
+        isValidId(actionPlanId) &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['action', 'responsible', 'deadline', 'status', 'priority', 'updatedAt']) &&
+        incoming().updatedAt == request.time;
+      allow delete: if isSuperAdmin();
+    }
+  }
+}

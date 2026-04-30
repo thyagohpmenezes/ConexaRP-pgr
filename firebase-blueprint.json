@@ -1,0 +1,122 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "System users with Role-Based Access Control",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["SuperAdmin", "TechnicalResponsable", "Analyst", "Client"] },
+        "companyId": { "type": "string", "description": "Linked company if role is Client", "nullable": true },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["email", "role", "createdAt"]
+    },
+    "Company": {
+      "title": "Company",
+      "description": "Client company record",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "cnpj": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["name", "cnpj", "ownerId", "createdAt", "updatedAt"]
+    },
+    "Unit": {
+      "title": "Unit",
+      "description": "Work unit belonging to a company",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "name": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["companyId", "name", "createdAt", "updatedAt"]
+    },
+    "Sector": {
+      "title": "Sector",
+      "description": "Sector belonging to a unit",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "unitId": { "type": "string" },
+        "name": { "type": "string" },
+        "ges": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["companyId", "unitId", "name", "ges", "createdAt", "updatedAt"]
+    },
+    "Assessment": {
+      "title": "Assessment",
+      "description": "Psychosocial assessment project",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "unitId": { "type": "string" },
+        "sectorId": { "type": "string" },
+        "gesId": { "type": "string" },
+        "status": { "type": "string", "enum": ["PLANEJADA", "EM COLETA", "EM ANÁLISE", "VALIDAÇÃO TÉCNICA", "CONCLUÍDA", "ARQUIVADA"] },
+        "domains": { "type": "array" },
+        "checklist": { "type": "object" },
+        "triangulationScore": { "type": "number" },
+        "probability": { "type": "number" },
+        "severity": { "type": "number" },
+        "riskScore": { "type": "number" },
+        "creatorId": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["companyId", "unitId", "sectorId", "gesId", "status", "creatorId", "createdAt", "updatedAt"]
+    },
+    "ActionPlan": {
+      "title": "Action Plan",
+      "description": "Action plans generated from assessments",
+      "type": "object",
+      "properties": {
+        "assessmentId": { "type": "string" },
+        "companyId": { "type": "string" },
+        "hazardId": { "type": "string" },
+        "action": { "type": "string" },
+        "responsible": { "type": "string" },
+        "deadline": { "type": "string" },
+        "status": { "type": "string" },
+        "priority": { "type": "string" },
+        "creatorId": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["assessmentId", "companyId", "hazardId", "action", "responsible", "deadline", "status", "priority", "creatorId", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profiles with their Role-Based Access Control mapping"
+    },
+    "companies/{companyId}": {
+      "schema": { "$ref": "#/entities/Company" },
+      "description": "Companies under assessment"
+    },
+    "companies/{companyId}/units/{unitId}": {
+      "schema": { "$ref": "#/entities/Unit" },
+      "description": "Units within a company"
+    },
+    "companies/{companyId}/sectors/{sectorId}": {
+      "schema": { "$ref": "#/entities/Sector" },
+      "description": "Sectors within a company. unitId is stored on the document."
+    },
+    "assessments/{assessmentId}": {
+      "schema": { "$ref": "#/entities/Assessment" },
+      "description": "Psychosocial risks assessments for a given GES"
+    },
+    "actionPlans/{actionPlanId}": {
+      "schema": { "$ref": "#/entities/ActionPlan" },
+      "description": "Action Plans related to risks"
+    }
+  }
+}
