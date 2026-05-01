@@ -155,26 +155,7 @@ export default function ReportGenerator({
 
    return (
       <>
-         {/* Estilos de Impressão Customizados */}
-         <style>{`
-            @media print {
-               body * { visibility: hidden; }
-               #printable-report, #printable-report * { visibility: visible; }
-               #printable-report { 
-                  position: absolute !important; 
-                  left: 0 !important; 
-                  top: 0 !important; 
-                  width: 100% !important; 
-                  margin: 0 !important; 
-                  padding: 20px !important;
-                  border: none !important;
-                  box-shadow: none !important;
-               }
-               .no-print { display: none !important; }
-               body { background: white !important; }
-               * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-            }
-         `}</style>
+         {/* Estilos de Impressão Customizados removidos para evitar conflitos com o relatório global */}
 
          <div id="printable-report" className="max-w-5xl mx-auto space-y-6 bg-white p-8 rounded-lg border border-slate-200 shadow-sm text-slate-800">
             {/* Cabeçalho do Relatório */}

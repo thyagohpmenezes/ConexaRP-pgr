@@ -1,1 +1,52 @@
 @import "tailwindcss";
+
+@layer utilities {
+  @media print {
+    /* Esconder elementos de navegação e interface */
+    .no-print,
+    aside,
+    header,
+    nav {
+      display: none !important;
+    }
+    
+    /* Resetar containers principais para ocupar toda a página */
+    main {
+      position: static !important;
+      height: auto !important;
+      overflow: visible !important;
+      padding: 0 !important;
+      margin: 0 !important;
+    }
+
+    .flex-1.overflow-y-auto {
+      overflow: visible !important;
+      height: auto !important;
+      padding: 0 !important;
+      background: white !important;
+    }
+
+    /* Forçar cores de fundo */
+    * {
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    
+    body {
+      background: white !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+
+    /* Otimização de quebra de página */
+    section {
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+
+    /* Remover margens padrão do navegador na impressão */
+    @page {
+      margin: 10mm;
+    }
+  }
+}

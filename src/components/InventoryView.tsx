@@ -154,19 +154,21 @@ export default function InventoryView({ assessments, companies }: InventoryViewP
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleDownloadPdf = () => {
-    const element = document.getElementById('pdf-export-container');
-    if (!element) return;
-    
-    const opt = {
-      margin:       10,
-      filename:     `Relatorio_Conexa_${selectedAssessment?.unitId.replace(/\s+/g, '_') || 'Global'}.pdf`,
-      image:        { type: 'jpeg', quality: 0.98 },
-      html2canvas:  { scale: 2, useCORS: true },
-      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
-    };
+  const [showPdfDropdown, setShowPdfDropdown] = useState(false);
 
-    html2pdf().set(opt).from(element).save();
+  const handleDownloadPdf = () => {
+    // Salvar o título original da aba
+    const originalTitle = document.title;
+    
+    // O navegador usa a tag <title> como nome sugerido para salvar o PDF
+    const unitName = selectedAssessment?.unitId ? String(selectedAssessment.unitId).replace(/\s+/g, '_') : 'Global';
+    document.title = `Relatorio_Conexa_${unitName}_Completo`;
+
+    // Executa a impressão sincronamente
+    window.print();
+
+    // Restaura o título imediatamente após o retorno do print (que é bloqueante)
+    document.title = originalTitle;
   };
 
   // Se um relatório estiver selecionado, mostra o "espelho"
@@ -188,6 +190,7 @@ export default function InventoryView({ assessments, companies }: InventoryViewP
             >
               <FileSpreadsheet size={14} /> Exportar Excel
             </button>
+            
             <button 
               onClick={handleDownloadPdf}
               className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-sm active:scale-95"
@@ -210,7 +213,7 @@ export default function InventoryView({ assessments, companies }: InventoryViewP
         </div>
 
         <div className="space-y-12">
-          <section>
+          <section id="pdf-section-1">
             <div className="flex items-center gap-3 mb-6">
               <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center font-black text-sm">01</div>
               <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">Análise Setorial (Tabulação)</h3>
@@ -224,17 +227,20 @@ export default function InventoryView({ assessments, companies }: InventoryViewP
             />
           </section>
 
-          <section className="pt-6 border-t border-slate-100">
+          <section id="pdf-section-2" className="pt-6 border-t border-slate-100">
              <div className="flex items-center gap-3 mb-6">
               <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center font-black text-sm">02</div>
               <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">Relatório PGR Detalhado</h3>
             </div>
             <ReportGenerator 
               assessment={selectedAssessment}
+              companyName={companies.find(c => c.id === selectedAssessment.companyId)?.name}
+              unitName={selectedAssessment.unitId}
               checklistCriticality={((selectedAssessment.checklist?.nonConforming || 0) * 1 + (selectedAssessment.checklist?.partial || 0) * 0.5) / 
                 Math.max(1, (selectedAssessment.checklist?.conforming || 0) + (selectedAssessment.checklist?.partial || 0) + (selectedAssessment.checklist?.nonConforming || 0))}
               employeeOverallMean={selectedAssessment.employeeOverallMean || 0}
               managerOverallMean={selectedAssessment.managerOverallMean || 0}
+              onConclude={() => {}}
             />
           </section>
         </div>

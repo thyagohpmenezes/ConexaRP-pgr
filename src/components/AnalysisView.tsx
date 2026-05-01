@@ -74,10 +74,10 @@ export default function AnalysisView({
   const [severity, setSeverity] = useState(assessment?.severity || triangulation.suggestedValue);
   const [probability, setProbability] = useState(assessment?.probability || triangulation.suggestedValue);
 
-  // Sincronizar sugestão automática se não houver edição manual (opcional, aqui estamos sendo fiéis)
+  // Sincronizar sugestão automática sempre que o cálculo mudar
   useEffect(() => {
-    if (!assessment?.severity) setSeverity(triangulation.suggestedValue);
-    if (!assessment?.probability) setProbability(triangulation.suggestedValue);
+    setSeverity(triangulation.suggestedValue);
+    setProbability(triangulation.suggestedValue);
   }, [triangulation.suggestedValue]);
 
   // Atualizar o banco de dados quando os valores mudarem

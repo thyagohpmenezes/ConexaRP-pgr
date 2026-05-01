@@ -135,7 +135,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 flex text-slate-900 font-sans selection:bg-blue-100 selection:text-blue-900">
       {/* Sidebar */}
-      <aside className="w-64 bg-slate-900 text-white flex flex-col shrink-0">
+      <aside className="w-64 bg-slate-900 text-white flex flex-col shrink-0 no-print">
         <div className="p-6 border-b border-slate-800">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-900/50">
@@ -210,7 +210,7 @@ export default function App() {
       {/* Main Content */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
         {/* Header */}
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0">
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0 no-print">
           <div className="flex items-center gap-4">
             <h2 className="text-sm font-black text-slate-900 uppercase tracking-[0.2em] italic">
               {activeView === 'dashboard' ? 'Dashboard' : 
@@ -254,21 +254,69 @@ export default function App() {
           {activeView === 'assessments' && (
             <div className="space-y-6">
               {!currentAssessment ? (
-                <div className="bg-white rounded-3xl border border-slate-200 p-20 text-center shadow-sm">
-                  <div className="w-16 h-16 bg-blue-50 text-blue-200 rounded-2xl flex items-center justify-center mx-auto mb-6">
-                    <Database size={32} />
+                <div className="space-y-6">
+                  {/* Cabeçalho da Lista */}
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">Avaliações da Empresa</h3>
+                      <p className="text-slate-400 text-xs font-medium">Selecione uma avaliação existente ou crie uma nova auditoria.</p>
+                    </div>
+                    <button 
+                      disabled={!selectedCompanyId}
+                      onClick={() => selectedCompanyId && createNewAssessment(selectedCompanyId)}
+                      className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:grayscale text-white px-6 py-3 rounded-xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-blue-900/20 transition-all active:scale-95 flex items-center gap-2"
+                    >
+                      <Plus size={16} /> Nova Avaliação
+                    </button>
                   </div>
-                  <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight mb-2">Nenhuma Avaliação Encontrada</h3>
-                  <p className="text-slate-400 text-sm max-w-md mx-auto mb-8 font-medium">
-                    Para iniciar, você deve primeiro cadastrar uma empresa na aba "Empresas", e então criar uma nova avaliação aqui.
-                  </p>
-                  <button 
-                    disabled={!selectedCompanyId}
-                    onClick={() => selectedCompanyId && createNewAssessment(selectedCompanyId)}
-                    className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:grayscale text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-blue-900/20 transition-all active:scale-95 flex items-center gap-3 mx-auto"
-                  >
-                    <Plus size={18} /> Iniciar Nova Avaliação
-                  </button>
+
+                  {/* Lista de Avaliações */}
+                  <div className="grid gap-4">
+                    {assessments.filter(a => a.companyId === selectedCompanyId).length === 0 ? (
+                      <div className="bg-white rounded-3xl border border-slate-200 p-20 text-center shadow-sm">
+                        <div className="w-16 h-16 bg-blue-50 text-blue-200 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                          <Database size={32} />
+                        </div>
+                        <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight mb-2">Nenhuma Avaliação Encontrada</h3>
+                        <p className="text-slate-400 text-sm max-w-md mx-auto font-medium">
+                          Inicie sua primeira avaliação para esta empresa clicando no botão acima.
+                        </p>
+                      </div>
+                    ) : (
+                      assessments
+                        .filter(a => a.companyId === selectedCompanyId)
+                        .map(a => (
+                          <button
+                            key={a.id}
+                            onClick={() => setActiveAssessmentId(a.id)}
+                            className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:border-blue-400 hover:shadow-md transition-all text-left flex items-center justify-between group"
+                          >
+                            <div className="flex items-center gap-4">
+                              <div className="w-12 h-12 bg-slate-50 text-slate-400 rounded-xl flex items-center justify-center group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">
+                                <ClipboardList size={24} />
+                              </div>
+                              <div>
+                                <h4 className="font-black text-slate-900 uppercase text-sm tracking-tight">Avaliação GRO/PGR</h4>
+                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">
+                                  ID: {a.id.split('-')[0]} • Unidade: {a.unitId || 'Não definida'} • Início: {new Date(a.createdAt).toLocaleDateString()}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-4">
+                              <div className="text-right">
+                                <span className={`px-2 py-1 rounded text-[8px] font-black uppercase tracking-widest ${
+                                  a.status === 'CONCLUÍDA' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                                }`}>
+                                  {a.status}
+                                </span>
+                                <p className="text-[10px] font-black text-slate-900 mt-1 uppercase">Risco: {a.riskScore || 0}</p>
+                              </div>
+                              <ChevronRight className="text-slate-300 group-hover:text-blue-600 transition-colors" />
+                            </div>
+                          </button>
+                        ))
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-6">

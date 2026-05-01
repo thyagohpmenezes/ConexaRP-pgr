@@ -47,6 +47,7 @@ export function useData() {
     delete payload.riskScore;
     delete payload.updatedAt;
     delete payload.createdAt;
+    delete payload.actions; // Removido temporariamente para evitar erro de schema no Supabase
     
     return payload;
   };
