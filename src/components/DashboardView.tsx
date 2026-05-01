@@ -20,10 +20,10 @@ export default function DashboardView({ assessments, activeAssessment }: Dashboa
   const stats = {
     total: assessments.length,
     active: assessments.filter(a => a.status !== 'CONCLUÍDA' && a.status !== 'ARQUIVADA').length,
-    critical: assessments.filter(a => a.riskScore >= 17).length,
-    high: assessments.filter(a => a.riskScore >= 10 && a.riskScore < 17).length,
-    totalActions: assessments.reduce((acc, a) => acc + a.actions.length, 0),
-    completedActions: assessments.reduce((acc, a) => acc + a.actions.filter(act => act.status === 'CONCLUIDO').length, 0)
+    critical: assessments.filter(a => (a.riskScore || 0) >= 17).length,
+    high: assessments.filter(a => (a.riskScore || 0) >= 10 && (a.riskScore || 0) < 17).length,
+    totalActions: assessments.reduce((acc, a) => acc + (a.actions?.length || 0), 0),
+    completedActions: assessments.reduce((acc, a) => acc + (a.actions || []).filter(act => act.status === 'CONCLUIDO').length, 0)
   };
 
   return (

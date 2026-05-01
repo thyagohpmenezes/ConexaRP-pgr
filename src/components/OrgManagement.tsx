@@ -18,8 +18,8 @@ import {
 import { Company, Unit, Sector, Assessment } from '../types';
 interface OrgManagementProps {
   companies: Company[];
-  onCreateCompany: (name: string, cnpj: string) => Promise<void>;
-  onUpdateCompany: (id: string, data: Partial<Company>) => Promise<void>;
+  onCreateCompany: (data: Partial<Company>) => Promise<any>;
+  onUpdateCompany: (id: string, data: Partial<Company>) => Promise<any>;
   onDeleteCompany: (id: string) => Promise<void>;
   assessments: Assessment[];
 }
@@ -54,7 +54,11 @@ export default function OrgManagement({ companies, onCreateCompany, onUpdateComp
     if (!newCompanyName || !newCompanyCnpj) return;
     setIsSubmitting(true);
     try {
-      await onCreateCompany(newCompanyName, newCompanyCnpj);
+      await onCreateCompany({ 
+        name: newCompanyName, 
+        cnpj: newCompanyCnpj,
+        units: [] 
+      });
       setShowModal(false);
       setNewCompanyName('');
       setNewCompanyCnpj('');

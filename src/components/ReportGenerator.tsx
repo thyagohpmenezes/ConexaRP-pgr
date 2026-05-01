@@ -58,8 +58,8 @@ export default function ReportGenerator({
    const { status, triangulationScore, grauConvergencia = 'FRACA', riskScore, probability, severity } = assessment;
 
    const getRiskLabel = (val: number) => {
-      if (val >= 17) return 'CRÍTICO';
-      if (val >= 10) return 'ALTO';
+      if (val >= 20) return 'CRÍTICO';
+      if (val >= 15) return 'ALTO';
       if (val >= 6) return 'MODERADO';
       return 'BAIXO';
    };
@@ -112,7 +112,7 @@ export default function ReportGenerator({
          "Revisar o inventário de riscos em caso de mudanças nos processos de trabalho."
       ];
 
-   const riskColor = riskScore >= 17 ? 'text-rose-600' : riskScore >= 10 ? 'text-orange-600' : riskScore >= 6 ? 'text-amber-600' : 'text-emerald-600';
+   const riskColor = riskScore >= 20 ? 'text-rose-600' : riskScore >= 15 ? 'text-orange-600' : riskScore >= 6 ? 'text-amber-600' : 'text-emerald-600';
    const riskLabel = getRiskLabel(riskScore);
 
    const divergentDomains = effectiveDomains.filter(d => Math.abs(d.employeeMean - d.managerMean) > 1.0);

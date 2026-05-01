@@ -1,28 +1,24 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { User, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { auth, db } from './firebase';
+import { supabase } from './supabase';
+import { Session, User } from '@supabase/supabase-js';
 
 interface UserProfile {
   email: string;
   role: string;
-  companyId?: string | null;
 }
 
 interface AuthContextType {
   user: User | null;
   profile: UserProfile | null;
   loading: boolean;
-  loginWithGoogle: () => Promise<void>;
-  logout: () => Promise<void>;
+  signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
   profile: null,
   loading: true,
-  loginWithGoogle: async () => {},
-  logout: async () => {},
+  signOut: async () => {},
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -31,51 +27,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      if (currentUser) {
-        setUser(currentUser);
-        try {
-          const docRef = doc(db, 'users', currentUser.uid);
-          const docSnap = await getDoc(docRef);
-          
-          if (docSnap.exists()) {
-            setProfile(docSnap.data() as UserProfile);
-          } else if (currentUser.email === 'thyagohpmenezes@gmail.com' || isLocalhost) {
-            const newProfile = {
-              email: currentUser.email,
-              role: 'SuperAdmin',
-              createdAt: serverTimestamp()
-            };
-            await setDoc(docRef, newProfile);
-            setProfile(newProfile as UserProfile);
-          } else {
-            setProfile(null);
-          }
-        } catch (e) {
-          console.error("Error fetching user profile:", e);
-        }
-      } else {
-        setUser(null);
-        setProfile(null);
-      }
-      setLoading(false);
+    // Buscar sessão atual ao montar o componente
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      handleSession(session);
     });
-    return unsubscribe;
+
+    // Escutar mudanças de autenticação
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      handleSession(session);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  const loginWithGoogle = async () => {
-    const provider = new GoogleAuthProvider();
-    await signInWithPopup(auth, provider);
+  const handleSession = (session: Session | null) => {
+    if (session?.user) {
+      setUser(session.user);
+      
+      // Regra SuperAdmin Hardcoded
+      const isSuperAdmin = session.user.email === 'thyagohpmenezes@gmail.com';
+      
+      setProfile({
+        email: session.user.email || '',
+        role: isSuperAdmin ? 'SuperAdmin' : 'Auditor'
+      });
+    } else {
+      setUser(null);
+      setProfile(null);
+    }
+    setLoading(false);
   };
 
-  const logout = async () => {
-    await signOut(auth);
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
   };
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, loginWithGoogle, logout }}>
+    <AuthContext.Provider value={{ user, profile, loading, signOut: handleSignOut }}>
       {children}
     </AuthContext.Provider>
   );
