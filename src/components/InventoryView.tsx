@@ -13,17 +13,20 @@ import {
   Download,
   FileSpreadsheet
 } from 'lucide-react';
-import { Assessment, MatrixColor } from '../types';
+import { Assessment, Company, MatrixColor } from '../types';
 import { HAZARD_MASTER } from '../constants';
 import SectorAnalysisView from './SectorAnalysisView';
 import ReportGenerator from './ReportGenerator';
 import * as XLSX from 'xlsx';
+// @ts-ignore
+import html2pdf from 'html2pdf.js';
 
 interface InventoryViewProps {
   assessments: Assessment[];
+  companies: Company[];
 }
 
-export default function InventoryView({ assessments }: InventoryViewProps) {
+export default function InventoryView({ assessments, companies }: InventoryViewProps) {
   const [activeSubTab, setActiveSubTab] = useState<'table' | 'reports'>('table');
   const [selectedAssessment, setSelectedAssessment] = useState<Assessment | null>(null);
   const [copied, setCopied] = useState(false);
@@ -151,11 +154,26 @@ export default function InventoryView({ assessments }: InventoryViewProps) {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleDownloadPdf = () => {
+    const element = document.getElementById('pdf-export-container');
+    if (!element) return;
+    
+    const opt = {
+      margin:       10,
+      filename:     `Relatorio_Conexa_${selectedAssessment?.unitId.replace(/\s+/g, '_') || 'Global'}.pdf`,
+      image:        { type: 'jpeg', quality: 0.98 },
+      html2canvas:  { scale: 2, useCORS: true },
+      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    };
+
+    html2pdf().set(opt).from(element).save();
+  };
+
   // Se um relatório estiver selecionado, mostra o "espelho"
   if (selectedAssessment) {
     return (
-      <div className="space-y-6">
-        <div className="flex justify-between items-center no-print">
+      <div className="space-y-6" id="pdf-export-container">
+        <div className="flex justify-between items-center no-print" data-html2canvas-ignore="true">
           <button 
             onClick={() => setSelectedAssessment(null)}
             className="flex items-center gap-2 text-slate-500 hover:text-slate-800 font-bold text-xs uppercase tracking-widest transition-all"
@@ -171,7 +189,7 @@ export default function InventoryView({ assessments }: InventoryViewProps) {
               <FileSpreadsheet size={14} /> Exportar Excel
             </button>
             <button 
-              onClick={() => window.print()}
+              onClick={handleDownloadPdf}
               className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-sm active:scale-95"
             >
               <Download size={14} /> Baixar PDF
@@ -341,10 +359,20 @@ export default function InventoryView({ assessments }: InventoryViewProps) {
                   </div>
                   <span className="text-[8px] font-black px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full border border-emerald-200 uppercase">Concluído</span>
                 </div>
-                <h4 className="text-sm font-black text-slate-800 uppercase mb-1 truncate">{a.unitId}</h4>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-4">
-                  Finalizado: {new Date(a.updatedAt || '').toLocaleDateString()}
+                <h4 className="text-sm font-black text-slate-800 uppercase mb-0.5 truncate">
+                  Relatório Riscos Psicossociais
+                </h4>
+                <p className="text-[11px] font-bold text-slate-600 uppercase truncate mb-4">
+                  {companies.find(c => c.id === a.companyId)?.name || 'Empresa Desconhecida'}
                 </p>
+                <div className="flex flex-col gap-1 mb-4">
+                  <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest">
+                    Unidade: {a.unitId || 'Matriz'}
+                  </p>
+                  <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest">
+                    Finalizado: {new Date(a.updatedAt || '').toLocaleDateString()}
+                  </p>
+                </div>
                 <div className="grid grid-cols-2 gap-2 mb-4">
                    <div className="bg-slate-50 p-2 rounded-lg">
                       <p className="text-[8px] text-slate-400 font-black uppercase mb-0.5">Risco Geral</p>

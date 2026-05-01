@@ -446,43 +446,162 @@ Use esta tabela como referência para preenchimento automático dos campos "Risc
 
 ## 11. Itens com Leitura Invertida
 
-Aplicar `pontuacao_ajustada = 6 - pontuacao_original` **antes** de qualquer cálculo de média.
+A metodologia utiliza escala Likert de 1 a 5.
 
-### Pesquisa com Colaboradores
+Para garantir que a interpretação dos resultados seja padronizada, a pontuação deve ser ajustada de modo que:
 
-| Item | Enunciado |
-|---|---|
-| 2 | O volume de tarefas é gerenciável. |
-| 3 | As metas são realistas e claras. |
-| 5 | Tenho pausas adequadas durante a jornada. |
-| 6 | A jornada de trabalho é respeitada. |
-| 7 | Meu papel no trabalho é claro. |
-| 8 | Recebo suporte da liderança. |
-| 9 | Tenho recursos suficientes para o trabalho. |
-| 10 | Sinto respeito no ambiente de trabalho. |
-| 11 | Já vivi ou vi situações de humilhação, constrangimento, ameaça ou perseguição no trabalho. |
-| 12 | Já vivi ou vi situações de discriminação no trabalho por cor/raça, sexo, idade, religião, condição de saúde, orientação sexual ou outro motivo. |
-| 13 | Tenho liberdade para expressar opiniões sem medo de represálias.
-|
-### Pesquisa com Gestores
+> **Quanto maior a pontuação ajustada, maior o sinal de exposição ao risco psicossocial.**
 
-| Item | Enunciado |
-|---|---|
-| 2 | O volume de tarefas é adequado para a equipe. |
-| 3 | Metas são definidas de forma realista. |
-| 5 | Pausas são respeitadas na equipe. |
-| 6 | Jornadas são gerenciadas adequadamente. |
-| 7 | Papéis são claros para a equipe. |
-| 8 | Liderança oferece suporte. |
-| 9 | Recursos são suficientes. |
-| 10 | Ambiente promove respeito. |
-| 11 | Casos de assédio são raros. |
-| 12 | Discriminação não ocorre. |
-| 13 | Represálias são evitadas. |
+Assim, os itens com enunciado positivo ou protetivo devem ter **leitura invertida**.
 
-> **Atenção de implementação:** A inversão deve ocorrer no momento da leitura dos dados brutos, antes de qualquer soma, média ou normalização. Itens não listados aqui usam a pontuação direta (sem inversão).
+Aplicar:
+
+```ts
+pontuacao_ajustada = 6 - pontuacao_original
+```
+
+A inversão deve ser aplicada **antes de qualquer cálculo de média, soma, percentual, classificação, score, normalização ou triangulação**.
 
 ---
+
+## 11.1. Pesquisa com Colaboradores
+
+Os seguintes itens devem utilizar **leitura invertida**:
+
+| Item | Enunciado | Justificativa |
+|---:|---|---|
+| 1 | Tenho tempo suficiente para fazer meu trabalho com segurança e qualidade. | Quanto maior a concordância, menor o risco percebido. |
+| 3 | As metas e cobranças do meu trabalho são compatíveis com a realidade do que precisa ser feito. | Quanto maior a concordância, menor o risco relacionado a metas incompatíveis. |
+| 4 | Consigo fazer as pausas necessárias durante o trabalho. | Quanto maior a concordância, menor o risco relacionado a pausas insuficientes. |
+| 6 | Sei claramente o que devo fazer no meu trabalho. | Quanto maior a concordância, menor o risco relacionado à falta de clareza de papel. |
+| 7 | Recebo orientações claras da minha liderança. | Quanto maior a concordância, menor o risco relacionado a falhas de orientação. |
+| 8 | Tenho apoio da minha liderança quando aparece algum problema no trabalho. | Quanto maior a concordância, menor o risco relacionado à falta de apoio da liderança. |
+| 10 | No meu setor, as pessoas se tratam com respeito. | Quanto maior a concordância, menor o risco relacionado a conflitos e desrespeito. |
+| 13 | Posso falar sobre problemas do trabalho sem medo de sofrer represália. | Quanto maior a concordância, menor o risco relacionado ao medo de represália. |
+
+---
+
+## 11.2. Itens com Leitura Direta — Colaboradores
+
+Os demais itens da pesquisa com colaboradores devem utilizar **leitura direta**, ou seja, sem inversão de pontuação.
+
+| Item | Enunciado | Justificativa |
+|---:|---|---|
+| 2 | Preciso trabalhar com muita pressa para dar conta das minhas tarefas. | Quanto maior a concordância, maior o sinal de risco relacionado a ritmo excessivo. |
+| 5 | Minha jornada de trabalho me deixa muito cansado física ou mentalmente. | Quanto maior a concordância, maior o sinal de risco relacionado a cansaço físico ou mental. |
+| 9 | Falta pessoal, material, ferramenta ou recurso para eu trabalhar bem. | Quanto maior a concordância, maior o sinal de risco relacionado a recursos insuficientes. |
+| 11 | Já vivi ou vi situações de humilhação, constrangimento, ameaça ou perseguição no trabalho. | Quanto maior a concordância, maior o sinal de risco relacionado a assédio, humilhação ou violência psicológica. |
+| 12 | Já vivi ou vi situações de discriminação no trabalho por cor/raça, sexo, idade, religião, condição de saúde, orientação sexual ou outro motivo. | Quanto maior a concordância, maior o sinal de risco relacionado à discriminação. |
+| 14 | Meu trabalho exige muita atenção e isso me deixa mentalmente desgastado. | Quanto maior a concordância, maior o sinal de risco relacionado à carga mental elevada. |
+| 15 | Do jeito que o trabalho está organizado hoje, ele pode prejudicar a saúde das pessoas. | Quanto maior a concordância, maior o sinal de risco relacionado à organização do trabalho. |
+
+---
+
+## 11.3. Pesquisa com Gestores
+
+Os seguintes itens devem utilizar **leitura invertida**:
+
+| Item | Enunciado | Justificativa |
+|---:|---|---|
+| 1 | A equipe tem tempo suficiente para realizar o trabalho com segurança e qualidade. | Quanto maior a concordância, menor o risco percebido. |
+| 3 | As metas e cobranças do setor são compatíveis com a capacidade real da equipe. | Quanto maior a concordância, menor o risco relacionado a metas incompatíveis. |
+| 4 | A equipe consegue realizar as pausas necessárias durante a jornada. | Quanto maior a concordância, menor o risco relacionado a pausas insuficientes. |
+| 6 | As atividades e responsabilidades de cada colaborador estão claramente definidas. | Quanto maior a concordância, menor o risco relacionado à falta de clareza de papel. |
+| 7 | As orientações dadas à equipe são claras e consistentes. | Quanto maior a concordância, menor o risco relacionado a falhas de orientação. |
+| 8 | A equipe recebe apoio adequado da liderança para resolver problemas do trabalho. | Quanto maior a concordância, menor o risco relacionado à falta de apoio da liderança. |
+| 10 | No setor, as relações de trabalho acontecem de forma respeitosa. | Quanto maior a concordância, menor o risco relacionado a conflitos e desrespeito. |
+| 13 | Os colaboradores conseguem relatar problemas do trabalho sem medo de represália. | Quanto maior a concordância, menor o risco relacionado ao medo de represália. |
+
+---
+
+## 11.4. Itens com Leitura Direta — Gestores
+
+Os demais itens da pesquisa com gestores devem utilizar **leitura direta**, ou seja, sem inversão de pontuação.
+
+| Item | Enunciado | Justificativa |
+|---:|---|---|
+| 2 | A equipe precisa trabalhar com muita pressa para cumprir as atividades. | Quanto maior a concordância, maior o sinal de risco relacionado a ritmo excessivo. |
+| 5 | A jornada de trabalho tem gerado cansaço físico ou mental excessivo na equipe. | Quanto maior a concordância, maior o sinal de risco relacionado a cansaço físico ou mental. |
+| 9 | Faltam pessoas, materiais, ferramentas ou recursos para a equipe trabalhar bem. | Quanto maior a concordância, maior o sinal de risco relacionado a recursos insuficientes. |
+| 11 | Já ocorreram situações de humilhação, constrangimento, ameaça ou perseguição no setor. | Quanto maior a concordância, maior o sinal de risco relacionado a assédio, humilhação ou violência psicológica. |
+| 12 | Já ocorreram situações de discriminação no setor por cor/raça, sexo, idade, religião, condição de saúde, orientação sexual ou outro motivo. | Quanto maior a concordância, maior o sinal de risco relacionado à discriminação. |
+| 14 | O trabalho da equipe exige atenção constante e tem gerado desgaste mental elevado. | Quanto maior a concordância, maior o sinal de risco relacionado à carga mental elevada. |
+| 15 | Do jeito que o trabalho está organizado hoje, ele pode prejudicar a saúde das pessoas da equipe. | Quanto maior a concordância, maior o sinal de risco relacionado à organização do trabalho. |
+
+---
+
+## 11.5. Resumo de Configuração
+
+A configuração final para o sistema deve ser:
+
+| Item | Colaboradores | Gestores | Tipo de Leitura |
+|---:|---|---|---|
+| 1 | Tenho tempo suficiente para fazer meu trabalho com segurança e qualidade. | A equipe tem tempo suficiente para realizar o trabalho com segurança e qualidade. | **Invertida** |
+| 2 | Preciso trabalhar com muita pressa para dar conta das minhas tarefas. | A equipe precisa trabalhar com muita pressa para cumprir as atividades. | **Direta** |
+| 3 | As metas e cobranças do meu trabalho são compatíveis com a realidade do que precisa ser feito. | As metas e cobranças do setor são compatíveis com a capacidade real da equipe. | **Invertida** |
+| 4 | Consigo fazer as pausas necessárias durante o trabalho. | A equipe consegue realizar as pausas necessárias durante a jornada. | **Invertida** |
+| 5 | Minha jornada de trabalho me deixa muito cansado física ou mentalmente. | A jornada de trabalho tem gerado cansaço físico ou mental excessivo na equipe. | **Direta** |
+| 6 | Sei claramente o que devo fazer no meu trabalho. | As atividades e responsabilidades de cada colaborador estão claramente definidas. | **Invertida** |
+| 7 | Recebo orientações claras da minha liderança. | As orientações dadas à equipe são claras e consistentes. | **Invertida** |
+| 8 | Tenho apoio da minha liderança quando aparece algum problema no trabalho. | A equipe recebe apoio adequado da liderança para resolver problemas do trabalho. | **Invertida** |
+| 9 | Falta pessoal, material, ferramenta ou recurso para eu trabalhar bem. | Faltam pessoas, materiais, ferramentas ou recursos para a equipe trabalhar bem. | **Direta** |
+| 10 | No meu setor, as pessoas se tratam com respeito. | No setor, as relações de trabalho acontecem de forma respeitosa. | **Invertida** |
+| 11 | Já vivi ou vi situações de humilhação, constrangimento, ameaça ou perseguição no trabalho. | Já ocorreram situações de humilhação, constrangimento, ameaça ou perseguição no setor. | **Direta** |
+| 12 | Já vivi ou vi situações de discriminação no trabalho por cor/raça, sexo, idade, religião, condição de saúde, orientação sexual ou outro motivo. | Já ocorreram situações de discriminação no setor por cor/raça, sexo, idade, religião, condição de saúde, orientação sexual ou outro motivo. | **Direta** |
+| 13 | Posso falar sobre problemas do trabalho sem medo de sofrer represália. | Os colaboradores conseguem relatar problemas do trabalho sem medo de represália. | **Invertida** |
+| 14 | Meu trabalho exige muita atenção e isso me deixa mentalmente desgastado. | O trabalho da equipe exige atenção constante e tem gerado desgaste mental elevado. | **Direta** |
+| 15 | Do jeito que o trabalho está organizado hoje, ele pode prejudicar a saúde das pessoas. | Do jeito que o trabalho está organizado hoje, ele pode prejudicar a saúde das pessoas da equipe. | **Direta** |
+
+---
+
+## 11.6. Regra de Implementação
+
+Para itens com **leitura direta**:
+
+```ts
+pontuacao_ajustada = pontuacao_original
+```
+
+Para itens com **leitura invertida**:
+
+```ts
+pontuacao_ajustada = 6 - pontuacao_original
+```
+
+---
+
+## 11.7. Exemplo de Conversão
+
+| Pontuação Original | Pontuação Ajustada |
+|---:|---:|
+| 1 | 5 |
+| 2 | 4 |
+| 3 | 3 |
+| 4 | 2 |
+| 5 | 1 |
+
+---
+
+## 11.8. Atenção de Implementação
+
+A inversão deve ocorrer no momento da leitura dos dados brutos, antes de qualquer cálculo de:
+
+- média;
+- soma;
+- percentual;
+- classificação;
+- score;
+- normalização;
+- triangulação;
+- geração de painel;
+- geração de inventário;
+- geração de plano de ação.
+
+Após o ajuste, todas as análises devem considerar que:
+
+> **Médias mais altas indicam maior exposição a fatores de risco psicossociais.**
+
+Itens não marcados como **leitura invertida** devem permanecer com **pontuação direta**.
 
 ## 12. Regras de Registro e Saída
 

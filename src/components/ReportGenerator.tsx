@@ -18,6 +18,8 @@ import { FileSpreadsheet } from 'lucide-react';
 
 interface ReportGeneratorProps {
    assessment: Assessment;
+   companyName?: string;
+   unitName?: string;
    checklistCriticality: number;
    employeeOverallMean: number;
    managerOverallMean: number;
@@ -26,6 +28,8 @@ interface ReportGeneratorProps {
 
 export default function ReportGenerator({
    assessment,
+   companyName,
+   unitName,
    checklistCriticality,
    employeeOverallMean,
    managerOverallMean,
@@ -55,7 +59,7 @@ export default function ReportGenerator({
    };
 
    const effectiveDomains = getEffectiveDomains();
-   const { status, triangulationScore, grauConvergencia = 'FRACA', riskScore, probability, severity } = assessment;
+   const { status, triangulationScore, riskScore, probability, severity } = assessment;
 
    const getRiskLabel = (val: number) => {
       if (val >= 20) return 'CRÍTICO';
@@ -68,18 +72,7 @@ export default function ReportGenerator({
    const getInventoryBySector = () => {
       const inventory: Record<string, { rowCount: number, hazards: any[] }> = {};
 
-      // 1. Primeiro, capturar o Inventário Geral (Empresa)
-      const globalCritical = effectiveDomains.filter(d => d.employeeMean >= 3.0);
-      const globalHazards = globalCritical.flatMap(cd => HAZARD_MASTER.filter(h => h.domainId === cd.id));
-      
-      if (globalHazards.length > 0) {
-         inventory['GERAL (EMPRESA)'] = {
-            rowCount: 0, // No global, não precisamos mostrar contagem aqui conforme pedido anterior
-            hazards: globalHazards
-         };
-      }
-
-      // 2. Depois, processar setores do breakdown (Análise Individual)
+      // Processar setores do breakdown (Análise Individual)
       if (assessment.sectorBreakdown) {
          Object.entries(assessment.sectorBreakdown).forEach(([sName, sData]) => {
             // Filtrar domínios críticos específicos deste setor (média >= 3.0)
@@ -100,8 +93,17 @@ export default function ReportGenerator({
 
    const inventoryData = getInventoryBySector();
 
+   // Inventário Global (Análise Geral da Empresa)
+   // Junta os perigos que atingiram a média global + todos os perigos que estouraram em qualquer setor
+   const globalCritical = effectiveDomains.filter(d => d.employeeMean >= 3.0);
+   const globalAveragesHazards = globalCritical.flatMap(cd => HAZARD_MASTER.filter(h => h.domainId === cd.id));
+   const allSectorHazards = Object.values(inventoryData).flatMap(d => d.hazards);
+   
+   // Deduplica para mostrar na visão geral todos os riscos que a empresa tem (seja global ou pontual)
+   const uniqueGlobalHazards = Array.from(new Map([...globalAveragesHazards, ...allSectorHazards].map(h => [h.hazard, h])).values());
+
    // 2. Recomendações dinâmicas baseadas nos fatores críticos reais
-   const allCriticalHazards = Object.values(inventoryData).flatMap(d => d.hazards);
+   const allCriticalHazards = uniqueGlobalHazards;
    const dynamicRecommendations = Array.from(new Set(allCriticalHazards.map(h => (h as any).recommendation))).filter(Boolean) as string[];
 
    const finalRecommendations = dynamicRecommendations.length > 0
@@ -127,7 +129,7 @@ export default function ReportGenerator({
          ['Unidade:', assessment.unitId],
          [],
          ['RESULTADOS DA TRIANGULAÇÃO'],
-         ['Índice de Convergência', triangulationScore.toFixed(3), grauConvergencia],
+         ['Índice de Triangulação (Risco)', triangulationScore.toFixed(3)],
          ['Score de Risco', riskScore, getRiskLabel(riskScore)],
          ['Probabilidade', probability],
          ['Severidade', severity],
@@ -211,13 +213,9 @@ export default function ReportGenerator({
                1. Contexto Avaliatório
             </h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-slate-50 border border-slate-100 rounded text-xs">
-               <div>
+               <div className="col-span-2">
                   <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Unidade</p>
-                  <p className="font-black text-slate-700">{assessment.unitId}</p>
-               </div>
-               <div>
-                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Visão Atual</p>
-                  <p className="font-black text-blue-600">{assessment.sectorId || 'Global (Empresa)'}</p>
+                  <p className="font-black text-slate-700 uppercase">{companyName || 'Empresa Não Informada'} | {unitName || assessment.unitId || 'Matriz'}</p>
                </div>
                <div>
                   <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">GES em Foco</p>
@@ -238,10 +236,9 @@ export default function ReportGenerator({
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                <div className="p-3 border border-slate-200 rounded">
-                  <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Índice de Convergência</p>
+                  <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Índice de Triangulação (Risco)</p>
                   <div className="flex items-baseline gap-2">
                      <p className="text-xl font-black text-slate-900 leading-none">{triangulationScore.toFixed(3)}</p>
-                     <span className="text-[10px] font-black text-blue-600 uppercase">({grauConvergencia})</span>
                   </div>
                </div>
                <div className="p-3 border border-slate-200 rounded">
@@ -264,6 +261,48 @@ export default function ReportGenerator({
             <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-4">Mapeamento de perigos psicossociais isolados por departamento para inclusão no PGR.</p>
 
             <div className="space-y-6">
+               {/* Inventário Global da Empresa */}
+               <div className="border-2 border-slate-800 rounded-xl overflow-hidden shadow-sm">
+                  <div className="bg-slate-900 px-4 py-3 border-b border-slate-800 flex justify-between items-center text-white">
+                     <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 bg-slate-800 border border-slate-700 rounded-lg flex items-center justify-center text-blue-400">
+                           <LayoutGrid size={16} />
+                        </div>
+                        <div>
+                           <h3 className="text-[11px] font-black uppercase italic tracking-tight">VISÃO GERAL (EMPRESA)</h3>
+                        </div>
+                     </div>
+                     <div className="bg-slate-800 border border-slate-700 px-3 py-1 rounded-full">
+                        <span className="text-[9px] font-black text-rose-400 uppercase">Perigos Identificados: {uniqueGlobalHazards.length}</span>
+                     </div>
+                  </div>
+                  {uniqueGlobalHazards.length > 0 ? (
+                     <table className="w-full text-left text-[11px]">
+                        <thead className="bg-slate-50 border-b border-slate-200">
+                           <tr className="text-[8px] font-black text-slate-500 uppercase tracking-widest">
+                              <th className="px-6 py-3 w-1/4 italic">Fator de Perigo Global</th>
+                              <th className="px-6 py-3 w-1/3">Risco</th>
+                              <th className="px-6 py-3">Danos e Consequências à Saúde do Trabalhador</th>
+                           </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                           {uniqueGlobalHazards.map((h, i) => (
+                              <tr key={i} className="hover:bg-slate-50/50 transition-colors bg-white">
+                                 <td className="px-6 py-4 font-black text-slate-800 uppercase text-[10px] leading-tight border-r border-slate-50">{h.hazard}</td>
+                                 <td className="px-6 py-4 text-slate-600 text-[10px] font-medium leading-relaxed italic border-r border-slate-50">{h.risk}</td>
+                                 <td className="px-6 py-4 text-slate-600 text-[10px] font-medium leading-relaxed italic">{h.possibleDamages}</td>
+                              </tr>
+                           ))}
+                        </tbody>
+                     </table>
+                  ) : (
+                     <div className="p-6 text-center bg-white">
+                        <p className="text-[10px] text-slate-400 font-bold uppercase italic tracking-widest">Nenhum fator crítico global identificado acima do limite de tolerância.</p>
+                     </div>
+                  )}
+               </div>
+
+               {/* Inventários Setoriais */}
                {Object.keys(inventoryData).length > 0 ? (
                   Object.entries(inventoryData).map(([sector, data]) => (
                      <div key={sector} className="border-2 border-slate-100 rounded-xl overflow-hidden shadow-sm hover:border-slate-200 transition-colors">

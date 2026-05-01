@@ -13,7 +13,8 @@ import {
   ArrowLeft,
   FolderTree,
   Tag,
-  BarChart3
+  BarChart3,
+  RefreshCw
 } from 'lucide-react';
 import { Company, Unit, Sector, Assessment } from '../types';
 interface OrgManagementProps {
@@ -403,6 +404,52 @@ export default function OrgManagement({ companies, onCreateCompany, onUpdateComp
      );
   }
 
+  const handleSyncHistoricalSectors = async () => {
+    if (!window.confirm('Isso irá ler todas as avaliações passadas e adicionar os setores faltantes às empresas. Continuar?')) return;
+    setIsSubmitting(true);
+    try {
+      for (const company of companies) {
+        const companyAssessments = assessments.filter(a => a.companyId === company.id);
+        if (companyAssessments.length === 0) continue;
+
+        let hasChanges = false;
+        let targetUnit = company.units?.[0];
+        const updatedUnits = [...(company.units || [])];
+
+        if (!targetUnit) {
+           targetUnit = { id: crypto.randomUUID(), name: 'Matriz', sectors: [] };
+           updatedUnits.push(targetUnit);
+           hasChanges = true;
+        }
+
+        const newSectors = [...(targetUnit.sectors || [])];
+
+        for (const assessment of companyAssessments) {
+          if (assessment.sectorBreakdown) {
+            const names = Object.keys(assessment.sectorBreakdown);
+            names.forEach(name => {
+               if (!newSectors.some(s => s.name.toUpperCase() === name.toUpperCase())) {
+                  newSectors.push({ id: crypto.randomUUID(), name, ges: [] });
+                  hasChanges = true;
+               }
+            });
+          }
+        }
+
+        if (hasChanges) {
+           const finalUnits = updatedUnits.map(u => u.id === targetUnit!.id ? { ...u, sectors: newSectors } : u);
+           await onUpdateCompany(company.id, { units: finalUnits });
+        }
+      }
+      alert('Sincronização concluída! Todos os setores antigos foram importados para o cadastro das empresas.');
+    } catch(err) {
+      console.error(err);
+      alert('Erro ao sincronizar.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -410,13 +457,24 @@ export default function OrgManagement({ companies, onCreateCompany, onUpdateComp
             <h2 className="text-xl font-black text-slate-900 tracking-tight italic uppercase">Estrutura Organizacional</h2>
             <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">Gestão de Empresas, Unidades e Setores</p>
          </div>
-         <button 
-            onClick={() => setShowModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg active:scale-95"
-         >
-            <Plus size={14} />
-            Nova Empresa
-         </button>
+         <div className="flex gap-2">
+            <button 
+               onClick={handleSyncHistoricalSectors}
+               disabled={isSubmitting}
+               className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded text-xs font-black uppercase tracking-widest hover:bg-emerald-500 transition-all shadow-lg active:scale-95 disabled:opacity-50"
+               title="Puxar setores das avaliações antigas"
+            >
+               <RefreshCw size={14} className={isSubmitting ? "animate-spin" : ""} />
+               Sincronizar Setores Antigos
+            </button>
+            <button 
+               onClick={() => setShowModal(true)}
+               className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg active:scale-95"
+            >
+               <Plus size={14} />
+               Nova Empresa
+            </button>
+         </div>
       </div>
 
       {/* CREATE MODAL */}

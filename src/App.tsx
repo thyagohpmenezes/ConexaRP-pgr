@@ -303,6 +303,36 @@ export default function App() {
                         overallMeanManager={managerOverallMean}
                         sectorBreakdown={currentAssessment.sectorBreakdown || {}}
                         setSectorBreakdown={(s) => saveAssessment({ id: currentAssessment.id, sectorBreakdown: s })}
+                        onNewSectors={(names) => {
+                          if (!currentCompany) return;
+                          
+                          let targetUnit = currentCompany.units?.find(u => u.id === currentAssessment.unitId || u.name === currentAssessment.unitId);
+                          if (!targetUnit && currentCompany.units?.length > 0) {
+                             targetUnit = currentCompany.units[0];
+                          }
+
+                          const updatedUnits = [...(currentCompany.units || [])];
+                          
+                          if (!targetUnit) {
+                             targetUnit = { id: crypto.randomUUID(), name: 'Matriz', sectors: [] };
+                             updatedUnits.push(targetUnit);
+                          }
+
+                          let hasChanges = false;
+                          const newSectors = [...(targetUnit.sectors || [])];
+                          
+                          names.forEach(name => {
+                             if (!newSectors.some(s => s.name.toUpperCase() === name.toUpperCase())) {
+                                newSectors.push({ id: crypto.randomUUID(), name, ges: [] });
+                                hasChanges = true;
+                             }
+                          });
+
+                          if (hasChanges) {
+                             const finalUnits = updatedUnits.map(u => u.id === targetUnit!.id ? { ...u, sectors: newSectors } : u);
+                             updateCompany(currentCompany.id, { units: finalUnits });
+                          }
+                        }}
                         onComplete={(newDomains, newSectors) => {
                           saveAssessment({ id: currentAssessment.id, domains: newDomains, sectorBreakdown: newSectors });
                         }}
@@ -337,6 +367,8 @@ export default function App() {
           {activeView === 'assessments' && assessmentSubView === 'pgr' && currentAssessment && (
             <ReportGenerator 
               assessment={currentAssessment}
+              companyName={currentCompany?.name}
+              unitName={currentCompany?.units?.[0]?.name || 'Matriz'}
               checklistCriticality={checklistCriticality}
               employeeOverallMean={employeeOverallMean}
               managerOverallMean={managerOverallMean}
