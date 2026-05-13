@@ -42,20 +42,24 @@ export default function ReportGenerator({
          return assessment.domains;
       }
       
-      // Se global está vazio, consolidar dos setores
-      if (assessment.sectorBreakdown) {
-         const sectors = Object.values(assessment.sectorBreakdown);
-         if (sectors.length > 0) {
-            // Usar o primeiro setor como base de estrutura e calcular médias
-            const baseDomains = [...sectors[0].domains];
-            return baseDomains.map(base => {
-               const values = sectors.map(s => s.domains.find(d => d.id === base.id)?.employeeMean || 0).filter(v => v > 0);
-               const avg = values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0;
-               return { ...base, employeeMean: avg, managerMean: avg }; // Simplificado para visualização
-            });
-         }
+      const allSectors: any[] = [];
+      if (assessment.unitBreakdown) {
+         Object.values(assessment.unitBreakdown).forEach(u => {
+            allSectors.push(...Object.values(u.sectors || {}));
+         });
+      } else if (assessment.sectorBreakdown) {
+         allSectors.push(...Object.values(assessment.sectorBreakdown));
       }
-      return assessment.domains;
+
+      if (allSectors.length > 0) {
+         const baseDomains = [...allSectors[0].domains];
+         return baseDomains.map(base => {
+            const values = allSectors.map(s => s.domains.find((d: any) => d.id === base.id)?.employeeMean || 0).filter(v => v > 0);
+            const avg = values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+            return { ...base, employeeMean: avg, managerMean: avg };
+         });
+      }
+      return assessment.domains || [];
    };
 
    const effectiveDomains = getEffectiveDomains();
@@ -69,35 +73,39 @@ export default function ReportGenerator({
    };
 
    // 1. Calcular inventário detalhado por setor (classificação individual solicitada)
-   const getInventoryBySector = () => {
-      const inventory: Record<string, { rowCount: number, hazards: any[] }> = {};
+    const getInventoryHierarchy = () => {
+       const hierarchy: Record<string, Record<string, { rowCount: number, hazards: any[] }>> = {};
 
-      // Processar setores do breakdown (Análise Individual)
-      if (assessment.sectorBreakdown) {
-         Object.entries(assessment.sectorBreakdown).forEach(([sName, sData]) => {
-            // Filtrar domínios críticos específicos deste setor (média >= 3.0)
-            const sCritical = sData.domains.filter(d => d.employeeMean >= 3.0);
-            const sHazards = sCritical.flatMap(cd => HAZARD_MASTER.filter(h => h.domainId === cd.id));
+       const processSectors = (uName: string, sectors: Record<string, import('../types').SectorAssessment>) => {
+          if (!hierarchy[uName]) hierarchy[uName] = {};
+          Object.entries(sectors).forEach(([sName, sData]) => {
+             const sCritical = sData.domains.filter(d => d.employeeMean >= 3.0);
+             const sHazards = sCritical.flatMap(cd => HAZARD_MASTER.filter(h => h.domainId === cd.id));
+             if (sHazards.length > 0) {
+                hierarchy[uName][sName] = { rowCount: sData.rowCount || 0, hazards: sHazards };
+             }
+          });
+       };
 
-            if (sHazards.length > 0) {
-               inventory[sName] = {
-                  rowCount: sData.rowCount || 0,
-                  hazards: sHazards
-               };
-            }
-         });
-      }
+       if (assessment.unitBreakdown) {
+          Object.entries(assessment.unitBreakdown).forEach(([uName, uData]) => {
+             processSectors(uName, uData.sectors || {});
+          });
+       } else if (assessment.sectorBreakdown) {
+          processSectors('MATRIZ', assessment.sectorBreakdown);
+       }
 
-      return inventory;
-   };
+       return hierarchy;
+    };
 
-   const inventoryData = getInventoryBySector();
+    const inventoryHierarchy = getInventoryHierarchy();
+    const inventoryDataFlat = Object.values(inventoryHierarchy).reduce((acc, sectors) => ({ ...acc, ...sectors }), {});
 
    // Inventário Global (Análise Geral da Empresa)
    // Junta os perigos que atingiram a média global + todos os perigos que estouraram em qualquer setor
    const globalCritical = effectiveDomains.filter(d => d.employeeMean >= 3.0);
    const globalAveragesHazards = globalCritical.flatMap(cd => HAZARD_MASTER.filter(h => h.domainId === cd.id));
-   const allSectorHazards = Object.values(inventoryData).flatMap(d => d.hazards);
+   const allSectorHazards = Object.values(inventoryDataFlat).flatMap((d: any) => d.hazards);
    
    // Deduplica para mostrar na visão geral todos os riscos que a empresa tem (seja global ou pontual)
    const uniqueGlobalHazards = Array.from(new Map([...globalAveragesHazards, ...allSectorHazards].map(h => [h.hazard, h])).values());
@@ -141,10 +149,12 @@ export default function ReportGenerator({
       XLSX.utils.book_append_sheet(workbook, summarySheet, "Resumo");
 
       // 2. Aba Inventário
-      const inventoryRows = [['SETOR', 'PERIGO', 'RISCO (DESCRIÇÃO)', 'DANOS / AGRAVOS']];
-      Object.entries(inventoryData).forEach(([sector, data]) => {
-         data.hazards.forEach(h => {
-            inventoryRows.push([sector, h.hazard, h.risk, h.possibleDamages]);
+      const inventoryRows = [['UNIDADE', 'SETOR', 'PERIGO', 'RISCO (DESCRIÇÃO)', 'DANOS / AGRAVOS']];
+      Object.entries(inventoryHierarchy).forEach(([unit, sectors]) => {
+         Object.entries(sectors).forEach(([sector, data]) => {
+            data.hazards.forEach(h => {
+               inventoryRows.push([unit, sector, h.hazard, h.risk, h.possibleDamages]);
+            });
          });
       });
       const inventorySheet = XLSX.utils.aoa_to_sheet(inventoryRows);
@@ -283,42 +293,49 @@ export default function ReportGenerator({
                   )}
                </div>
 
-               {/* Inventários Setoriais */}
-               {Object.keys(inventoryData).length > 0 ? (
-                  Object.entries(inventoryData).map(([sector, data]) => (
-                     <div key={sector} className="border-2 border-slate-100 rounded-xl overflow-hidden shadow-sm hover:border-slate-200 transition-colors">
-                        <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex justify-between items-center">
-                           <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 bg-white border border-slate-200 rounded-lg flex items-center justify-center text-blue-600">
-                                 <LayoutGrid size={16} />
-                              </div>
-                              <div>
-                                 <h3 className="text-[11px] font-black text-slate-900 uppercase italic tracking-tight">SETOR: {sector}</h3>
-
-                              </div>
-                           </div>
-                           <div className="bg-white border border-slate-200 px-3 py-1 rounded-full">
-                              <span className="text-[9px] font-black text-rose-600 uppercase">Perigos Identificados: {data.hazards.length}</span>
-                           </div>
+               {/* Inventários por Unidade e Setor */}
+               {Object.keys(inventoryHierarchy).length > 0 ? (
+                  Object.entries(inventoryHierarchy).map(([unit, sectors]) => (
+                     <div key={unit} className="space-y-4">
+                        <div className="flex items-center gap-2 pt-4">
+                           <Layers size={14} className="text-blue-600" />
+                           <h4 className="text-[10px] font-black text-blue-700 uppercase tracking-widest italic">Unidade: {unit}</h4>
                         </div>
-                        <table className="w-full text-left text-[11px]">
-                           <thead className="bg-white border-b border-slate-100">
-                              <tr className="text-[8px] font-black text-slate-400 uppercase tracking-widest">
-                                 <th className="px-6 py-3 w-1/4 italic">Fator de Perigo</th>
-                                 <th className="px-6 py-3 w-1/3">Risco</th>
-                                 <th className="px-6 py-3">Danos e Consequências à Saúde do Trabalhador</th>
-                              </tr>
-                           </thead>
-                           <tbody className="divide-y divide-slate-50">
-                              {data.hazards.map((h, i) => (
-                                 <tr key={i} className="hover:bg-slate-50/50 transition-colors">
-                                    <td className="px-6 py-4 font-black text-slate-800 uppercase text-[10px] leading-tight border-r border-slate-50">{h.hazard}</td>
-                                    <td className="px-6 py-4 text-slate-600 text-[10px] font-medium leading-relaxed italic border-r border-slate-50">{h.risk}</td>
-                                    <td className="px-6 py-4 text-slate-600 text-[10px] font-medium leading-relaxed italic">{h.possibleDamages}</td>
-                                 </tr>
-                              ))}
-                           </tbody>
-                        </table>
+                        {Object.entries(sectors).map(([sector, data]) => (
+                           <div key={sector} className="border-2 border-slate-100 rounded-xl overflow-hidden shadow-sm hover:border-slate-200 transition-colors ml-4">
+                              <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex justify-between items-center">
+                                 <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 bg-white border border-slate-200 rounded-lg flex items-center justify-center text-blue-600">
+                                       <LayoutGrid size={16} />
+                                    </div>
+                                    <div>
+                                       <h3 className="text-[11px] font-black text-slate-900 uppercase italic tracking-tight">SETOR: {sector}</h3>
+                                    </div>
+                                 </div>
+                                 <div className="bg-white border border-slate-200 px-3 py-1 rounded-full">
+                                    <span className="text-[9px] font-black text-rose-600 uppercase">Perigos Identificados: {data.hazards.length}</span>
+                                 </div>
+                              </div>
+                              <table className="w-full text-left text-[11px]">
+                                 <thead className="bg-white border-b border-slate-100">
+                                    <tr className="text-[8px] font-black text-slate-400 uppercase tracking-widest">
+                                       <th className="px-6 py-3 w-1/4 italic">Fator de Perigo</th>
+                                       <th className="px-6 py-3 w-1/3">Risco</th>
+                                       <th className="px-6 py-3">Danos e Consequências à Saúde do Trabalhador</th>
+                                    </tr>
+                                 </thead>
+                                 <tbody className="divide-y divide-slate-50">
+                                    {data.hazards.map((h, i) => (
+                                       <tr key={i} className="hover:bg-slate-50/50 transition-colors">
+                                          <td className="px-6 py-4 font-black text-slate-800 uppercase text-[10px] leading-tight border-r border-slate-50">{h.hazard}</td>
+                                          <td className="px-6 py-4 text-slate-600 text-[10px] font-medium leading-relaxed italic border-r border-slate-50">{h.risk}</td>
+                                          <td className="px-6 py-4 text-slate-600 text-[10px] font-medium leading-relaxed italic">{h.possibleDamages}</td>
+                                       </tr>
+                                    ))}
+                                 </tbody>
+                              </table>
+                           </div>
+                        ))}
                      </div>
                   ))
                ) : (

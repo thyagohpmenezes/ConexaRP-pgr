@@ -21,34 +21,50 @@ export function useData() {
     return val || defaultVal;
   };
 
+  // Schema confirmado em 2026-05-13 — 16 colunas:
+  // id, organization_id, domains, checklist, sector_breakdown, unit_breakdown,
+  // triangulation_score, risk_score, probability, severity, user_id,
+  // created_at, updated_at, actions, start_date, end_date, status
   const mapFromDB = (data: any): Assessment => ({
-    ...data,
-    companyId: data.organization_id,
+    id: data.id,
+    companyId: data.organization_id || '',
+    unitId: '',
+    sectorId: '',
+    gesId: '',
+    status: data.status || AssessmentStatus.IN_PROGRESS,
+    startDate: data.start_date || data.created_at || new Date().toISOString(),
+    endDate: data.end_date || undefined,
     domains: parseJsonSafely(data.domains, []),
     checklist: parseJsonSafely(data.checklist, { conforming: 0, partial: 0, nonConforming: 0, notApplicable: 0 }),
     sectorBreakdown: parseJsonSafely(data.sector_breakdown, {}),
+    unitBreakdown: parseJsonSafely(data.unit_breakdown, {}),
     actions: parseJsonSafely(data.actions, []),
     triangulationScore: Number(data.triangulation_score) || 0,
+    probability: Number(data.probability) || 1,
+    severity: Number(data.severity) || 1,
     riskScore: Number(data.risk_score) || 0,
-    updatedAt: data.updated_at
   });
 
+  // Envia SOMENTE colunas confirmadas no banco de dados.
   const mapToDB = (data: Partial<Assessment>) => {
-    const payload: any = { ...data };
-    if (data.companyId) payload.organization_id = data.companyId;
-    if (data.sectorBreakdown) payload.sector_breakdown = data.sectorBreakdown;
+    const payload: Record<string, any> = {};
+
+    if (data.id)                               payload.id                  = data.id;
+    if (data.companyId)                        payload.organization_id     = data.companyId;
+    if (data.status)                           payload.status              = data.status;
+    if (data.startDate)                        payload.start_date          = data.startDate;
+    if (data.endDate)                          payload.end_date            = data.endDate;
+    if (data.domains)                          payload.domains             = data.domains;
+    if (data.checklist)                        payload.checklist           = data.checklist;
+    if (data.sectorBreakdown !== undefined)    payload.sector_breakdown    = data.sectorBreakdown;
+    if (data.unitBreakdown   !== undefined)    payload.unit_breakdown      = data.unitBreakdown;
+    if (data.actions         !== undefined)    payload.actions             = data.actions;
     if (data.triangulationScore !== undefined) payload.triangulation_score = data.triangulationScore;
-    if (data.riskScore !== undefined) payload.risk_score = data.riskScore;
-    if (data.createdAt) payload.created_at = data.createdAt;
-    
-    delete payload.companyId;
-    delete payload.sectorBreakdown;
-    delete payload.triangulationScore;
-    delete payload.riskScore;
-    delete payload.updatedAt;
-    delete payload.createdAt;
-    delete payload.actions; // Removido temporariamente para evitar erro de schema no Supabase
-    
+    if (data.probability     !== undefined)    payload.probability         = data.probability;
+    if (data.severity        !== undefined)    payload.severity            = data.severity;
+    if (data.riskScore       !== undefined)    payload.risk_score          = data.riskScore;
+
+    // NÃO EXISTEM NO BANCO: unit_id, sector_id, ges_id, end_date (opcional - não enviar se vazio)
     return payload;
   };
 

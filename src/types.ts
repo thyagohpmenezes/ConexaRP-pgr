@@ -77,6 +77,15 @@ export interface SectorAssessment {
   rowCount?: number;
 }
 
+export interface UnitAssessment {
+  name: string;
+  sectors: Record<string, SectorAssessment>;
+  unitOverallMean?: number;
+  rowCount?: number;
+  triangulationScore?: number;
+  riskScore?: number;
+}
+
 export interface Assessment {
   id: string;
   companyId: string;
@@ -95,6 +104,7 @@ export interface Assessment {
   riskScore: number;
   actions: ActionPlan[];
   sectorBreakdown?: Record<string, SectorAssessment>;
+  unitBreakdown?: Record<string, UnitAssessment>;
 }
 
 export interface Company {

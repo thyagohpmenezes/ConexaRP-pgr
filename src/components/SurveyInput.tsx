@@ -14,12 +14,24 @@ interface SurveyInputProps {
   overallMeanManager: number;
   sectorBreakdown?: Record<string, import('../types').SectorAssessment>;
   setSectorBreakdown: (d: Record<string, import('../types').SectorAssessment>) => void;
+  unitBreakdown?: Record<string, import('../types').UnitAssessment>;
+  setUnitBreakdown?: (d: Record<string, import('../types').UnitAssessment>) => void;
   onNewSectors?: (names: string[]) => void;
-  onComplete?: (domains: DomainData[], sectors: Record<string, import('../types').SectorAssessment>) => void;
+  onNewUnits?: (names: string[]) => void;
+  onComplete?: (domains: DomainData[], units: Record<string, import('../types').UnitAssessment>) => void;
 }
 
-type ViewState = 'OVERVIEW' | 'PROCESS_AXIS';
+type ViewState = 'OVERVIEW' | 'PROCESS_AXIS' | 'BATCH_UPLOAD' | 'DONE_VIEW';
 type Step = 'UPLOAD' | 'MAPPING' | 'DONE';
+
+interface FileState {
+  file: File | null;
+  fileName?: string; // Nome persistível para exibição após remontagem
+  data: any[];
+  columns: string[];
+  mapping: Record<string, string>;
+  status: 'empty' | 'loaded' | 'error';
+}
 
 // Columns to exclude from question detection
 const EXCLUDE = ['nome','name','email','cpf','matrícula','matricula','data','date','timestamp','setor',
@@ -81,29 +93,114 @@ function autoDetect(cols: string[], rows: any[], type: 'employee'|'manager'|'che
     }
   }
   // Sector detection
-  const SECTOR_P = ['setor','departamento','área','area','unidade','local','seção','secao','dept','equipe','turno','cargo','função','funcao','ghe','ges','grupo','posto','célula','celula','loja','filial','regional','divisão','divisao'];
-  const sCol = cols.find(c => { const l=c.toLowerCase().trim(); return SECTOR_P.some(p=>l.includes(p)); });
+  const UNIT_P = ['unidade','filial','regional','loja','unid','un.'];
+  const SECTOR_P = ['setor','departamento','área','area','seção','secao','dept','equipe','turno','cargo','função','funcao','ghe','ges','grupo','posto','célula','celula','divisão','divisao'];
+  
+  const uCol = cols.find(c => { const l=c.toLowerCase().trim(); return UNIT_P.some(p=>l.includes(p)); });
+  if (uCol) map['unit'] = uCol;
+
+  const sCol = cols.find(c => { 
+    const l=c.toLowerCase().trim(); 
+    return SECTOR_P.some(p=>l.includes(p)) && c !== uCol; 
+  });
   if (sCol) map['sector'] = sCol;
+
   console.log('[ConexaRP] autoDetect result:', map);
   return map;
 }
 
-export default function SurveyInput({ domains, setDomains, checklist, setChecklist, overallMeanEmployee, overallMeanManager, sectorBreakdown = {}, setSectorBreakdown, onNewSectors, onComplete }: SurveyInputProps) {
-  const [view, setView] = useState<ViewState>('OVERVIEW');
+
+
+export default function SurveyInput({ domains, setDomains, checklist, setChecklist, overallMeanEmployee, overallMeanManager, sectorBreakdown = {}, setSectorBreakdown, unitBreakdown = {}, setUnitBreakdown, onNewSectors, onNewUnits, onComplete }: SurveyInputProps) {
+  const [view, setView] = useState<ViewState>('BATCH_UPLOAD');
   const [step, setStep] = useState<Step>('UPLOAD');
-  const [axisType, setAxisType] = useState<'employee'|'manager'|'checklist'>('employee');
-  const [rawData, setRawData] = useState<any[]>([]);
-  const [columns, setColumns] = useState<string[]>([]);
-  const [mapping, setMapping] = useState<Record<string,string>>({});
   const [processing, setProcessing] = useState(false);
-  const [previewAxis, setPreviewAxis] = useState<string | null>(null);
+
+  // Estado dos arquivos persistido no localStorage.
+  // O objeto File não pode ser serializado, mas os dados parseados (data, columns, mapping) podem.
+  // Isso garante que os arquivos carregados sobrevivam à troca de abas ou remontagem do componente.
+  const STORAGE_KEY = 'conexarp_batch_files';
+
+  const emptyFileState = (): FileState => ({ file: null, data: [], columns: [], mapping: {}, status: 'empty' });
+
+  const [files, setFilesRaw] = useState<Record<'employee' | 'manager' | 'checklist', FileState>>(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        // Restaura dados mas file object fica null (não é serializável)
+        return {
+          employee:  { ...emptyFileState(), ...parsed.employee,  file: null },
+          manager:   { ...emptyFileState(), ...parsed.manager,   file: null },
+          checklist: { ...emptyFileState(), ...parsed.checklist, file: null },
+        };
+      }
+    } catch {}
+    return {
+      employee:  emptyFileState(),
+      manager:   emptyFileState(),
+      checklist: emptyFileState(),
+    };
+  });
+
+  // Persiste no localStorage sempre que os arquivos mudarem
+  const setFiles = (updater: React.SetStateAction<Record<'employee' | 'manager' | 'checklist', FileState>>) => {
+    setFilesRaw(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      try {
+        // Salva tudo exceto o objeto File (não serializável)
+        const toStore = {
+          employee:  { ...next.employee,  file: null },
+          manager:   { ...next.manager,   file: null },
+          checklist: { ...next.checklist, file: null },
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(toStore));
+      } catch {}
+      return next;
+    });
+  };
+
+  // Limpa o cache de arquivos quando o processamento for concluído
+  const clearFileCache = () => {
+    try { localStorage.removeItem(STORAGE_KEY); } catch {}
+  };
+
+  const updateMapping = (type: 'employee'|'manager'|'checklist', field: string, col: string) => {
+    setFiles(prev => ({
+      ...prev,
+      [type]: {
+         ...prev[type],
+         mapping: { ...prev[type].mapping, [field]: col }
+      }
+    }));
+  };
 
   const isDoneEmployee = domains.length > 0 && domains.some(d => d.employeeMean > 0);
   const isDoneManager = domains.length > 0 && domains.some(d => d.managerMean > 0);
   const isDoneChecklist = (checklist.conforming + checklist.partial + checklist.nonConforming) > 0;
 
-  const startAxis = (t: 'employee'|'manager'|'checklist') => {
-    setAxisType(t); setRawData([]); setColumns([]); setMapping({}); setStep('UPLOAD'); setView('PROCESS_AXIS');
+  const handleFileSelection = (type: 'employee' | 'manager' | 'checklist', file: File) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const wb = XLSX.read(ev.target?.result, { type: 'binary' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const data = XLSX.utils.sheet_to_json(ws);
+      if (!data.length) return;
+      const cols = Object.keys(data[0] as object);
+      
+      setFiles(prev => ({
+        ...prev,
+        [type]: {
+          file,
+          fileName: file.name,
+          data,
+          columns: cols,
+          mapping: autoDetect(cols, data, type),
+          status: 'loaded'
+        }
+      }));
+    };
+    reader.readAsBinaryString(file);
   };
 
   const cleanVal = (v: any): number => {
@@ -112,416 +209,349 @@ export default function SurveyInput({ domains, setDomains, checklist, setCheckli
     return isNaN(n) ? 0 : n;
   };
 
-  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const wb = XLSX.read(ev.target?.result, { type: 'binary' });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const data = XLSX.utils.sheet_to_json(ws);
-      if (!data.length) return;
-      const cols = Object.keys(data[0] as object);
-      setRawData(data); setColumns(cols);
-      setMapping(autoDetect(cols, data, axisType));
-      setStep('MAPPING');
-    };
-    reader.readAsBinaryString(file);
-  };
-
-  const handleProcess = () => {
+  const handleProcessBatch = () => {
     setProcessing(true);
     setTimeout(() => {
-      if (axisType === 'checklist') {
-        const c = { conforming:0, partial:0, nonConforming:0, notApplicable:0 };
-        rawData.forEach(row => {
-          for (let i=1;i<=15;i++) {
-            const col = mapping['c'+i]; if (!col) continue;
-            const v = (row[col]?.toString()||'').toUpperCase().trim();
-            if (v==='C'||v==='CONFORME') c.conforming++;
-            else if (v==='P'||v==='PARCIAL') c.partial++;
-            else if (v==='NC'||v.includes('NÃO CONF')||v.includes('NAO CONF')) c.nonConforming++;
-            else if (v==='NA'||v.includes('NÃO SE APLICA')) c.notApplicable++;
+      // 1. Process Checklist
+      const checklistData = files.checklist.data;
+      const checklistMap = files.checklist.mapping;
+      const newChecklist = { conforming: 0, partial: 0, nonConforming: 0, notApplicable: 0 };
+      
+      if (checklistData.length > 0) {
+        checklistData.forEach(row => {
+          for (let i = 1; i <= 15; i++) {
+            const col = checklistMap['c' + i]; if (!col) continue;
+            const v = (row[col]?.toString() || '').toUpperCase().trim();
+            if (v === 'C' || v === 'CONFORME') newChecklist.conforming++;
+            else if (v === 'P' || v === 'PARCIAL') newChecklist.partial++;
+            else if (v === 'NC' || v.includes('NÃO CONF') || v.includes('NAO CONF')) newChecklist.nonConforming++;
+            else if (v === 'NA' || v.includes('NÃO SE APLICA')) newChecklist.notApplicable++;
           }
         });
-        setChecklist(c);
-      } else {
-        const isEmp = axisType === 'employee';
+        setChecklist(newChecklist);
+      }
+
+      // 2. Process Employee & Manager Data with Hierarchy
+      const newUnits: Record<string, import('../types').UnitAssessment> = {};
+
+      const processAxis = (type: 'employee' | 'manager') => {
+        const fileState = files[type];
+        if (fileState.status !== 'loaded') return;
+
+        const isEmp = type === 'employee';
         const posItems = isEmp ? EMPLOYEE_POSITIVE_ITEMS : MANAGER_POSITIVE_ITEMS;
-        const sectorCol = mapping['sector'];
-        const rowsBySector: Record<string,any[]> = { '_global_': rawData };
-        if (sectorCol) {
-          rawData.forEach(row => {
-            const s = String(row[sectorCol]||'').trim().toUpperCase() || 'NÃO INFORMADO';
-            if (!rowsBySector[s]) rowsBySector[s] = [];
-            rowsBySector[s].push(row);
-          });
-        }
-        const calcDomains = (rows: any[], base: DomainData[]): DomainData[] => {
-          const result = base.map(d => ({...d}));
+        const unitCol = fileState.mapping['unit'];
+        const sectorCol = fileState.mapping['sector'];
+
+        fileState.data.forEach(row => {
+          const uName = unitCol ? (String(row[unitCol] || '').trim().toUpperCase() || 'MATRIZ') : 'MATRIZ';
+          const sName = sectorCol ? (String(row[sectorCol] || '').trim().toUpperCase() || 'GERAL') : 'GERAL';
+
+          if (!newUnits[uName]) {
+            newUnits[uName] = { name: uName, sectors: {}, rowCount: 0 };
+          }
+          if (!newUnits[uName].sectors[sName]) {
+            newUnits[uName].sectors[sName] = {
+              domains: DOMAINS.map(d => ({ ...d, employeeMean: 0, managerMean: 0, criticalFrequency: 0 })),
+              rowCount: 0,
+              employeeOverallMean: 0,
+              managerOverallMean: 0
+            };
+          }
+
+          const sector = newUnits[uName].sectors[sName];
+          if (isEmp) sector.rowCount++;
+
+          // Calculate item scores for this row and update domain averages
           DOMAINS.forEach(def => {
-            let sum=0,cnt=0,crit=0;
-            rows.forEach(row => {
-              def.items.forEach(item => {
-                const col = mapping[String(item)]; if (!col) return;
-                let v = cleanVal(row[col]); if (v<=0||v>5) return;
-                if (posItems.includes(item)) v = 6-v;
-                sum+=v; cnt++; if (v>=4) crit++;
-              });
+            const domain = sector.domains.find(d => d.id === def.id);
+            if (!domain) return;
+
+            let sum = 0, cnt = 0, crit = 0;
+            def.items.forEach(item => {
+              const col = fileState.mapping[String(item)]; if (!col) return;
+              let v = cleanVal(row[col]); if (v <= 0 || v > 5) return;
+              if (posItems.includes(item)) v = 6 - v; // Inversion rule
+              sum += v; cnt++; if (v >= 4) crit++;
             });
-            const idx = result.findIndex(d=>d.id===def.id);
-            if (idx!==-1 && cnt>0) {
-              const mean = sum/cnt;
-              if (isEmp) result[idx] = {...result[idx], employeeMean:mean, criticalFrequency:(crit/cnt)*100};
-              else result[idx] = {...result[idx], managerMean:mean};
+
+            if (cnt > 0) {
+              const mean = sum / cnt;
+              if (isEmp) {
+                domain.employeeMean = (domain.employeeMean * (sector.rowCount - 1) + mean) / sector.rowCount;
+                domain.criticalFrequency = (domain.criticalFrequency * (sector.rowCount - 1) + (crit / cnt * 100)) / sector.rowCount;
+              } else {
+                domain.managerMean = (domain.managerMean || 0) > 0 
+                  ? (domain.managerMean + mean) / 2 
+                  : mean;
+              }
             }
           });
-          return result;
-        };
-        const newDomains = calcDomains(rawData, [...domains]);
-        const newSectors: Record<string,import('../types').SectorAssessment> = {...sectorBreakdown};
-        if (sectorCol) {
-          Object.keys(rowsBySector).filter(k=>k!=='_global_').forEach(sk => {
-            const sRows = rowsBySector[sk];
-            const base = newSectors[sk]?.domains || DOMAINS.map(d=>({...d,employeeMean:0,managerMean:0,criticalFrequency:0}));
-            const sDomains = calcDomains(sRows, base);
-            const mean = sDomains.filter(d=>d.employeeMean>0).reduce((a,d)=>a+d.employeeMean,0) / Math.max(1,sDomains.filter(d=>d.employeeMean>0).length);
-            newSectors[sk] = { 
-              ...newSectors[sk], 
-              domains: sDomains, 
-              rowCount: isEmp ? sRows.length : (newSectors[sk]?.rowCount || sRows.length), 
-              employeeOverallMean: isEmp ? mean : (newSectors[sk]?.employeeOverallMean || 0), 
-              managerOverallMean: !isEmp ? mean : (newSectors[sk]?.managerOverallMean || 0) 
-            };
+        });
+      };
+
+      processAxis('employee');
+      processAxis('manager');
+
+      // 3. Final calculations per Sector/Unit (Triangulation)
+      Object.values(newUnits).forEach(unit => {
+        let unitSum = 0;
+        let unitCount = 0;
+
+        Object.values(unit.sectors).forEach(sector => {
+          const validEmployee = sector.domains.filter(d => d.employeeMean > 0);
+          sector.employeeOverallMean = validEmployee.length > 0 
+            ? validEmployee.reduce((a, b) => a + b.employeeMean, 0) / validEmployee.length 
+            : 0;
+
+          const validManager = sector.domains.filter(d => d.managerMean > 0);
+          sector.managerOverallMean = validManager.length > 0 
+            ? validManager.reduce((a, b) => a + b.managerMean, 0) / validManager.length 
+            : 0;
+
+          // Calculate Triangulation Score (0-1)
+          const empScore = sector.employeeOverallMean > 0 ? (sector.employeeOverallMean - 1) / 4 : 0;
+          const mngScore = sector.managerOverallMean > 0 ? (sector.managerOverallMean - 1) / 4 : 0;
+          const chkScore = (newChecklist.nonConforming + newChecklist.partial) / (newChecklist.conforming + newChecklist.partial + newChecklist.nonConforming || 1);
+
+          // Ponderação: Emp(4), Mng(3), Chk(4)
+          let num = (empScore * 4) + (mngScore * 3) + (chkScore * 4);
+          let den = 11;
+          sector.triangulationScore = num / den;
+
+          if (sector.employeeOverallMean > 0) {
+            unitSum += sector.employeeOverallMean;
+            unitCount++;
+          }
+        });
+
+        unit.unitOverallMean = unitCount > 0 ? unitSum / unitCount : 0;
+      });
+
+      // Update Global State
+      const globalDomains = DOMAINS.map(def => {
+        let eSum=0, eCnt=0, mSum=0, mCnt=0, critSum=0;
+        Object.values(newUnits).forEach(u => {
+          Object.values(u.sectors).forEach(s => {
+            const d = s.domains.find(dom => dom.id === def.id);
+            if (d) {
+              if (d.employeeMean > 0) { eSum += d.employeeMean; eCnt++; critSum += d.criticalFrequency; }
+              if (d.managerMean > 0) { mSum += d.managerMean; mCnt++; }
+            }
           });
-          const found = Object.keys(rowsBySector).filter(k=>k!=='_global_');
-          if (onNewSectors && found.length) onNewSectors(found);
-        }
-        if (onComplete) {
-          onComplete(newDomains, newSectors);
-        } else {
-          setDomains(newDomains);
-          if (Object.keys(newSectors).length) setSectorBreakdown(newSectors);
-        }
-      }
-      setProcessing(false); setStep('DONE');
-    }, 800);
+        });
+        return {
+          ...def,
+          employeeMean: eCnt > 0 ? eSum / eCnt : 0,
+          managerMean: mCnt > 0 ? mSum / mCnt : 0,
+          criticalFrequency: eCnt > 0 ? critSum / eCnt : 0,
+          items: def.items
+        };
+      });
+
+      setDomains(globalDomains);
+      if (setUnitBreakdown) setUnitBreakdown(newUnits);
+      
+      const allSectors: Record<string, import('../types').SectorAssessment> = {};
+      Object.values(newUnits).forEach(u => {
+        Object.entries(u.sectors).forEach(([sk, sData]) => {
+          allSectors[sk] = sData;
+        });
+      });
+      setSectorBreakdown(allSectors);
+
+      setSectorBreakdown(allSectors);
+
+      // Limpa cache e avança sem desmontar a view pai ainda
+      clearFileCache();
+      setProcessing(false);
+      setView('DONE_VIEW');
+    }, 1500);
   };
 
-  if (view === 'OVERVIEW') {
+  if (view === 'BATCH_UPLOAD') {
     return (
       <div className="space-y-6">
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-          <div className="mb-8 text-center max-w-2xl mx-auto">
-            <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight italic mb-2">Processo de Avaliação Conexa</h2>
+        <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
+          <div className="mb-10 text-center max-w-2xl mx-auto">
+            <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight italic mb-3">Triangulação de Dados Conexa</h2>
             <p className="text-sm text-slate-500 font-bold uppercase tracking-widest leading-relaxed">
-              Siga os passos abaixo selecionando cada eixo para realizar o upload e tabulação.<br />
-              Após concluir os 3 eixos, a triangulação final será gerada.
+              Carregue os 3 arquivos essenciais para iniciar a análise.<br />
+              O sistema organizará automaticamente por Unidades e Setores.
             </p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {([
-              { 
-                id:'employee', label:'Eixo 1: Colaboradores', icon:Users, done:isDoneEmployee, 
-                desc:'Percepção de riscos psicossociais pelos funcionários',
-                stats: isDoneEmployee ? [
-                  { label:'Média Geral', value: overallMeanEmployee.toFixed(2) },
-                  { label:'Domínios', value: domains.filter(d=>d.employeeMean>0).length + '/10' },
-                  { label:'Setores', value: Object.keys(sectorBreakdown||{}).length.toString() }
-                ] : []
-              },
-              { 
-                id:'manager', label:'Eixo 2: Gestores', icon:UserCircle2, done:isDoneManager, 
-                desc:'Visão da liderança sobre os fatores de risco',
-                stats: isDoneManager ? [
-                  { label:'Média Gestores', value: overallMeanManager.toFixed(2) },
-                  { label:'Domínios', value: domains.filter(d=>d.managerMean>0).length + '/10' }
-                ] : []
-              },
-              { 
-                id:'checklist', label:'Eixo 3: Empresa', icon:Database, done:isDoneChecklist, 
-                desc:'Checklist de conformidade com normas e diretrizes',
-                stats: isDoneChecklist ? [
-                  { label:'Conformes', value: checklist.conforming.toString() },
-                  { label:'Parciais', value: checklist.partial.toString() },
-                  { label:'Não Conf.', value: checklist.nonConforming.toString() }
-                ] : []
-              }
-            ] as const).map(axis => (
-              <div key={axis.id}
-                className={`relative rounded-2xl border-2 transition-all overflow-hidden ${axis.done ? 'bg-gradient-to-br from-emerald-50 to-white border-emerald-200 shadow-emerald-100 shadow-md' : 'bg-white border-slate-100 shadow-sm'}`}>
-                
-                {/* Card Header */}
-                <div className="p-6 pb-4">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${axis.done ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-200' : 'bg-slate-100 text-slate-400'}`}>
-                      <axis.icon size={24} />
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            {(['checklist', 'employee', 'manager'] as const).map((type) => {
+              const config = {
+                checklist: { label: 'Checklist Empresa', icon: Database, color: 'emerald', desc: '15 itens de conformidade' },
+                employee: { label: 'Colaboradores', icon: Users, color: 'blue', desc: 'Pesquisa com 15 questões' },
+                manager: { label: 'Gestores', icon: UserCircle2, color: 'amber', desc: 'Pesquisa com 15 questões' }
+              }[type];
+
+              const state = files[type];
+              const Icon = config.icon;
+
+              return (
+                <div key={type} className={`relative p-6 rounded-2xl border-2 transition-all group ${state.status === 'loaded' ? 'bg-slate-50 border-emerald-200' : 'bg-white border-slate-100 border-dashed hover:border-blue-300'}`}>
+                  <div className="flex flex-col items-center text-center">
+                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-4 transition-transform group-hover:scale-110 ${state.status === 'loaded' ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-400'}`}>
+                      <Icon size={28} />
                     </div>
-                    {axis.done && (
-                      <div className="flex items-center gap-1.5 bg-emerald-500 text-white text-[8px] font-black uppercase tracking-widest px-2 py-1 rounded-full">
-                        <CheckCircle2 size={10} /> Concluído
+                    <h3 className="font-black text-slate-800 uppercase tracking-tight mb-1 text-sm">{config.label}</h3>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6">{config.desc}</p>
+                    
+                    {state.status === 'loaded' ? (
+                      <div className="w-full space-y-3">
+                        <div className="flex items-center gap-2 justify-center text-emerald-600 bg-emerald-50 py-2 rounded-lg border border-emerald-100">
+                          <CheckCircle2 size={14} />
+                          <span className="text-[10px] font-black uppercase tracking-widest">Carregado</span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 font-medium truncate max-w-[180px]">{state.fileName || 'Dados carregados'}</p>
+                        <button 
+                          onClick={() => {
+                            setFiles(prev => ({ ...prev, [type]: { ...prev[type], status: 'empty', file: null, fileName: undefined, data: [] } }));
+                          }}
+                          className="text-[9px] font-black text-slate-400 uppercase hover:text-rose-500 transition-colors"
+                        >
+                          Remover
+                        </button>
                       </div>
+                    ) : (
+                      <label className="w-full cursor-pointer">
+                        <div className="w-full py-3 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center justify-center gap-2 shadow-lg active:scale-95">
+                          <Upload size={14} /> Selecionar
+                        </div>
+                        <input type="file" className="hidden" accept=".xlsx,.xls,.csv" onChange={(e) => e.target.files?.[0] && handleFileSelection(type, e.target.files[0])} />
+                      </label>
                     )}
                   </div>
-                  <h3 className={`font-black uppercase tracking-tight mb-1 ${axis.done ? 'text-emerald-900' : 'text-slate-800'}`}>{axis.label}</h3>
-                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest leading-tight">{axis.desc}</p>
-
-                  {/* Stats pills when done */}
-                  {axis.done && axis.stats.length > 0 && (
-                    <div className="flex flex-wrap gap-2 mt-4">
-                      {axis.stats.map(s => (
-                        <div key={s.label} className="bg-white border border-emerald-100 rounded-lg px-2.5 py-1.5 shadow-sm">
-                          <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">{s.label}</p>
-                          <p className="text-[13px] font-black text-emerald-700">{s.value}</p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
-
-                {/* Domain preview when done + expanded */}
-                {axis.done && axis.id !== 'checklist' && previewAxis === axis.id && (
-                  <div className="px-6 pb-4 border-t border-emerald-100 pt-4 bg-white/60">
-                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
-                      <BarChart2 size={10} className="text-blue-500" /> Médias por Domínio
-                    </p>
-                    <div className="space-y-1.5">
-                      {domains.filter(d => axis.id === 'employee' ? d.employeeMean > 0 : d.managerMean > 0).map(d => {
-                        const val = axis.id === 'employee' ? d.employeeMean : d.managerMean;
-                        const pct = Math.min(100, (val / 5) * 100);
-                        const color = val >= 3.5 ? '#ef4444' : val >= 2.5 ? '#f59e0b' : '#22c55e';
-                        return (
-                          <div key={d.id}>
-                            <div className="flex justify-between text-[8px] font-bold text-slate-600 mb-0.5">
-                              <span className="truncate max-w-[150px]">{d.name}</span>
-                              <span style={{color}}>{val.toFixed(2)}</span>
-                            </div>
-                            <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                              <div className="h-1.5 rounded-full" style={{width:`${pct}%`, backgroundColor: color}} />
-                            </div>
-                          </div>
-                        );
-                      })}
-                      {axis.id === 'employee' && Object.keys(sectorBreakdown||{}).length > 0 && (
-                        <div className="mt-3 pt-3 border-t border-slate-100">
-                          <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-2">Setores detectados</p>
-                          <div className="flex flex-wrap gap-1">
-                            {Object.entries(sectorBreakdown||{}).map(([name, data]) => (
-                              <span key={name} className="text-[8px] font-black bg-blue-50 border border-blue-100 text-blue-700 px-2 py-0.5 rounded-full uppercase">
-                                {name} ({(data as any).rowCount||0})
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {axis.done && axis.id === 'checklist' && previewAxis === axis.id && (
-                  <div className="px-6 pb-4 border-t border-emerald-100 pt-4 bg-white/60">
-                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-3">Resultado do Checklist</p>
-                    {[
-                      { label:'Conformes', val: checklist.conforming, color:'bg-emerald-400' },
-                      { label:'Parciais', val: checklist.partial, color:'bg-amber-400' },
-                      { label:'Não Conformes', val: checklist.nonConforming, color:'bg-rose-400' },
-                    ].map(item => {
-                      const total = checklist.conforming + checklist.partial + checklist.nonConforming;
-                      const pct = total > 0 ? Math.round((item.val/total)*100) : 0;
-                      return (
-                        <div key={item.label} className="mb-1.5">
-                          <div className="flex justify-between text-[8px] font-bold text-slate-600 mb-0.5">
-                            <span>{item.label}</span><span>{item.val} ({pct}%)</span>
-                          </div>
-                          <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                            <div className={`h-1.5 rounded-full ${item.color}`} style={{width:`${pct}%`}} />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* Card Actions */}
-                <div className={`px-6 py-3 flex items-center justify-between border-t ${axis.done ? 'border-emerald-100 bg-emerald-50/50' : 'border-slate-100 bg-slate-50'}`}>
-                  {axis.done ? (
-                    <>
-                      <button onClick={() => setPreviewAxis(previewAxis === axis.id ? null : axis.id)}
-                        className="flex items-center gap-1.5 text-[9px] font-black text-slate-500 uppercase hover:text-blue-600 transition-colors">
-                        {previewAxis === axis.id ? <EyeOff size={12}/> : <Eye size={12}/>}
-                        {previewAxis === axis.id ? 'Ocultar' : 'Ver Dados'}
-                      </button>
-                      <button onClick={() => startAxis(axis.id as any)}
-                        className="flex items-center gap-1.5 text-[9px] font-black text-slate-400 uppercase hover:text-slate-700 transition-colors">
-                        <RefreshCcw size={12}/> Atualizar
-                      </button>
-                    </>
-                  ) : (
-                    <button onClick={() => startAxis(axis.id as any)}
-                      className="w-full flex items-center justify-between text-[10px] font-black text-blue-600 uppercase hover:text-blue-500 transition-colors">
-                      <span>Processar Agora</span>
-                      <ArrowRight size={14} />
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
-          <div className="mt-8 text-center">
-            <button disabled={!(isDoneEmployee && isDoneManager && isDoneChecklist)}
-              className={`px-10 py-4 rounded-xl font-black uppercase text-sm tracking-widest transition-all shadow-xl active:scale-95 flex items-center gap-3 mx-auto ${(isDoneEmployee && isDoneManager && isDoneChecklist) ? 'bg-slate-900 text-white hover:bg-slate-800' : 'bg-slate-100 text-slate-400 cursor-not-allowed shadow-none'}`}>
-              <FolderTree size={20} /> Gerar Triangulação Final
+
+          <div className="mt-12 text-center pt-8 border-t border-slate-100">
+            <button 
+              onClick={() => setView('PROCESS_AXIS')}
+              disabled={!(files.checklist.status === 'loaded' && files.employee.status === 'loaded' && files.manager.status === 'loaded')}
+              className={`px-12 py-5 rounded-2xl font-black uppercase text-sm tracking-widest transition-all shadow-2xl active:scale-95 flex items-center gap-4 mx-auto ${(files.checklist.status === 'loaded' && files.employee.status === 'loaded' && files.manager.status === 'loaded') ? 'bg-blue-600 text-white hover:bg-blue-500 shadow-blue-600/20' : 'bg-slate-100 text-slate-300 cursor-not-allowed shadow-none'}`}
+            >
+              <ArrowRight size={20} />
+              Sincronizar Colunas e Setores
             </button>
-            {!(isDoneEmployee && isDoneManager && isDoneChecklist) && <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-4">* Complete os 3 eixos de dados acima para liberar a triangulação</p>}
+            {!processing && !(files.checklist.status === 'loaded' && files.employee.status === 'loaded' && files.manager.status === 'loaded') && (
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-6">* É necessário carregar os 3 arquivos para garantir a integridade da metodologia RP</p>
+            )}
           </div>
         </div>
       </div>
     );
   }
 
-  // PROCESS_AXIS view
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-4 bg-white p-4 rounded-xl border border-slate-200">
-        <button onClick={() => { setView('OVERVIEW'); setStep('UPLOAD'); }} className="p-2 bg-slate-50 text-slate-500 rounded hover:bg-slate-100">
-          <ArrowLeft size={18} />
-        </button>
-        <div>
-          <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight italic">
-            {axisType==='employee' ? 'Sincronização: Colaboradores' : axisType==='manager' ? 'Sincronização: Gestores' : 'Sincronização: Checklist Empresa'}
-          </h3>
-          <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Passo atual de processamento</p>
-        </div>
-      </div>
-
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-        <div className="flex justify-between items-center max-w-2xl mx-auto">
-          {(['UPLOAD','MAPPING','DONE'] as Step[]).map((s, idx) => {
-            const icons = [Upload, TableIcon, CheckCircle2];
-            const labels = ['Upload','Mapeamento','Concluído'];
-            const Icon = icons[idx];
-            return (
-              <React.Fragment key={s}>
-                <div className={`flex flex-col items-center gap-2 ${step===s ? 'text-blue-600' : step==='DONE' && idx<2 ? 'text-emerald-500' : 'text-slate-400'}`}>
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 ${step===s ? 'border-blue-600 bg-blue-50' : step==='DONE'&&idx<2 ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-slate-50'}`}>
-                    <Icon size={18} />
-                  </div>
-                  <span className="text-[10px] font-black uppercase tracking-widest">{labels[idx]}</span>
-                </div>
-                {idx<2 && <div className="h-px bg-slate-200 flex-1 mb-6" />}
-              </React.Fragment>
-            );
-          })}
-        </div>
-      </div>
-
-      <AnimatePresence mode="wait">
-        {step==='UPLOAD' && (
-          <motion.div key="upload" initial={{opacity:0,scale:0.98}} animate={{opacity:1,scale:1}} exit={{opacity:0}} className="max-w-xl mx-auto">
-            <label className="flex flex-col items-center justify-center p-16 bg-white border-4 border-dashed border-slate-100 rounded-3xl cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-all text-center group">
-              <div className="p-6 bg-slate-50 rounded-full text-slate-400 group-hover:text-blue-600 group-hover:bg-white transition-all mb-6 shadow-sm"><Upload size={48} /></div>
-              <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight mb-2">
-                Importar Arquivo ({axisType==='employee'?'Colaboradores':axisType==='manager'?'Gestores':'Checklist'})
-              </h3>
-              <p className="text-xs text-slate-500 font-bold uppercase tracking-widest leading-relaxed max-w-xs">Arraste ou clique para selecionar seu arquivo XLSX ou CSV.</p>
-              <input type="file" className="hidden" accept=".xlsx,.xls,.csv" onChange={handleFile} />
-            </label>
-          </motion.div>
-        )}
-
-        {step==='MAPPING' && (
-          <motion.div key="mapping" initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} exit={{opacity:0}} className="space-y-4">
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center flex-wrap gap-4">
-                <div>
-                  <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">Vincular Colunas do Arquivo</h3>
-                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
-                    {rawData.length} linhas detectadas | {Object.keys(mapping).filter(k=>!isNaN(Number(k))&&mapping[k]).length} perguntas mapeadas
-                    {mapping['sector'] ? ` | Setor: "${mapping['sector']}"` : ''}
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={() => setStep('UPLOAD')} className="px-4 py-2 text-[10px] font-black uppercase tracking-widest text-slate-600 hover:bg-slate-100 rounded">Voltar</button>
-                  <button onClick={handleProcess} disabled={processing}
-                    className="px-4 py-2 bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest rounded shadow-lg hover:bg-blue-500 flex items-center gap-2">
-                    {processing ? <RefreshCw className="animate-spin" size={14}/> : <ArrowRight size={14}/>}
-                    {processing ? 'Tabulando...' : 'Finalizar Eixo'}
-                  </button>
-                </div>
-              </div>
-              <div className="p-0 max-h-[500px] overflow-y-auto">
-                <table className="w-full text-left">
-                  <thead className="sticky top-0 bg-white shadow-sm z-10">
-                    <tr className="border-b border-slate-100 text-[9px] text-slate-400 uppercase tracking-widest font-black">
-                      <th className="px-6 py-4">Item</th><th className="px-6 py-4">Status</th><th className="px-6 py-4">Coluna no Arquivo</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {Array.from({length:15}).map((_,i) => {
-                      const k = axisType==='checklist' ? 'c'+(i+1) : String(i+1);
-                      const mapped = !!mapping[k];
-                      return (
-                        <tr key={k} className={mapped?'bg-white':'bg-slate-50/50'}>
-                          <td className="px-6 py-3">
-                            <span className="text-[11px] font-black text-slate-700 bg-slate-100 px-2 py-1 rounded mr-2">#{i+1}</span>
-                            <span className="text-xs font-bold text-slate-600">{axisType==='checklist'?`Item ${i+1}`:`Pergunta ${i+1}`}</span>
-                          </td>
-                          <td className="px-6 py-3">
-                            {mapped ? <span className="flex items-center gap-1 text-[9px] font-black text-emerald-600 uppercase"><CheckCircle2 size={12}/>Vinculado</span>
-                              : <span className="flex items-center gap-1 text-[9px] font-black text-amber-500 uppercase"><AlertCircle size={12}/>Não Identificado</span>}
-                          </td>
-                          <td className="px-6 py-3">
-                            <select value={mapping[k]||''} onChange={e=>setMapping({...mapping,[k]:e.target.value})}
-                              className="w-full max-w-xs text-[11px] p-2 bg-white border border-slate-200 rounded outline-none focus:border-blue-500 font-bold">
-                              <option value="">-- Selecione --</option>
-                              {columns.map(c=><option key={c} value={c}>{c}</option>)}
-                            </select>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                    {axisType!=='checklist' && (
-                      <tr className={`border-t-2 ${mapping['sector']?'bg-emerald-50 border-emerald-200':'bg-rose-50 border-rose-200'}`}>
-                        <td className="px-6 py-3">
-                          <span className={`text-[11px] font-black px-2 py-1 rounded mr-2 ${mapping['sector']?'text-emerald-700 bg-emerald-100':'text-rose-700 bg-rose-100'}`}>SETOR</span>
-                          <span className="text-xs font-bold text-slate-600">Coluna de Setor / Departamento</span>
-                          {!mapping['sector'] && <p className="text-[9px] text-rose-500 font-bold uppercase mt-1">Opcional — necessário para tabulação por setores</p>}
-                        </td>
-                        <td className="px-6 py-3">
-                          {mapping['sector'] ? <span className="flex items-center gap-1 text-[9px] font-black text-emerald-600 uppercase"><CheckCircle2 size={12}/>Vinculado</span>
-                            : <span className="text-[9px] text-slate-400 font-bold">Não detectado</span>}
-                        </td>
-                        <td className="px-6 py-3">
-                          <select value={mapping['sector']||''} onChange={e=>setMapping({...mapping,sector:e.target.value})}
-                            className="w-full max-w-xs text-[11px] p-2 bg-white border border-slate-200 rounded outline-none focus:border-blue-500 font-bold">
-                            <option value="">-- Análise Global Apenas --</option>
-                            {columns.map(c=><option key={c} value={c}>{c}</option>)}
-                          </select>
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </motion.div>
-        )}
-
-        {step==='DONE' && (
-          <motion.div key="done" initial={{opacity:0,scale:0.95}} animate={{opacity:1,scale:1}} className="space-y-6 text-center py-12">
-            <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
-              <CheckCircle2 size={40} />
-            </div>
-            <h3 className="text-2xl font-black text-slate-900 uppercase italic tracking-tight mb-2">Eixo Processado!</h3>
-            <p className="text-sm text-slate-500 font-bold uppercase tracking-widest max-w-sm mx-auto mb-8">
-              Os dados de {axisType==='employee'?'Colaboradores':axisType==='manager'?'Gestores':'Checklist'} foram tabulados com sucesso.
+  if (view === 'PROCESS_AXIS') {
+    return (
+      <div className="space-y-6">
+        <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
+          <div className="mb-10 text-center max-w-2xl mx-auto">
+            <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight italic mb-3">Sincronização de Colunas</h2>
+            <p className="text-sm text-slate-500 font-bold uppercase tracking-widest leading-relaxed">
+              Para a correta identificação de Unidades e Setores conforme a metodologia, revise e valide as colunas importadas.
             </p>
-            <button onClick={() => { setView('OVERVIEW'); setStep('UPLOAD'); }}
-              className="px-10 py-4 bg-slate-900 text-white rounded-xl font-black uppercase text-sm tracking-widest hover:bg-slate-800 transition-all shadow-xl">
-              Voltar ao Painel Geral
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {(['checklist', 'employee', 'manager'] as const).map(type => {
+              const file = files[type];
+              if (file.status !== 'loaded') return null;
+              const isChk = type === 'checklist';
+              const label = { checklist: 'Checklist', employee: 'Colaboradores', manager: 'Gestores' }[type];
+              return (
+                <div key={type} className="bg-slate-50 p-6 rounded-2xl border border-slate-200 shadow-inner flex flex-col h-[500px]">
+                  <h3 className="font-black text-slate-800 uppercase tracking-tight mb-4 flex items-center gap-2">
+                    <Database size={16} className="text-blue-500" /> {label}
+                  </h3>
+                  <div className="flex-1 overflow-y-auto pr-2 space-y-4 custom-scrollbar">
+                    {!isChk && (
+                      <div className="space-y-4 bg-white p-4 rounded-xl border border-slate-200">
+                        <div className="flex flex-col gap-1.5">
+                          <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Coluna de Unidade</label>
+                          <select value={file.mapping['unit'] || ''} onChange={(e) => updateMapping(type, 'unit', e.target.value)} className="w-full text-xs p-2.5 rounded-lg border border-slate-200 bg-slate-50 focus:border-blue-500 outline-none">
+                            <option value="">-- Ignorar (Matriz) --</option>
+                            {file.columns.map(c => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Coluna de Setor</label>
+                          <select value={file.mapping['sector'] || ''} onChange={(e) => updateMapping(type, 'sector', e.target.value)} className="w-full text-xs p-2.5 rounded-lg border border-slate-200 bg-slate-50 focus:border-blue-500 outline-none">
+                            <option value="">-- Ignorar (Geral) --</option>
+                            {file.columns.map(c => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                        </div>
+                      </div>
+                    )}
+                    <div className="space-y-3 bg-white p-4 rounded-xl border border-slate-200">
+                      <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 border-b border-slate-100 pb-2">Mapeamento de Questões</h4>
+                      {Array.from({ length: 15 }).map((_, i) => {
+                        const qKey = isChk ? `c${i+1}` : String(i+1);
+                        return (
+                          <div key={qKey} className="flex flex-col gap-1">
+                            <label className="text-[9px] font-bold text-slate-500 uppercase">Q{i+1}</label>
+                            <select value={file.mapping[qKey] || ''} onChange={(e) => updateMapping(type, qKey, e.target.value)} className="w-full text-xs p-2 rounded-lg border border-slate-200 bg-slate-50 outline-none truncate">
+                              <option value="">-- Não Mapeada --</option>
+                              {file.columns.map(c => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          
+          <div className="mt-10 flex justify-between items-center pt-6 border-t border-slate-100">
+            <button onClick={() => setView('BATCH_UPLOAD')} className="px-6 py-3 bg-white border border-slate-200 text-slate-600 rounded-xl font-black uppercase text-xs tracking-widest hover:bg-slate-50 transition-all flex items-center gap-2">
+              <ArrowLeft size={16} /> Voltar aos Arquivos
             </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
+            <button disabled={processing} onClick={handleProcessBatch} className={`px-10 py-4 rounded-xl font-black uppercase text-xs tracking-widest transition-all shadow-xl flex items-center gap-2 ${processing ? 'bg-slate-100 text-slate-400' : 'bg-slate-900 text-white hover:bg-slate-800 active:scale-95'}`}>
+              {processing ? <RefreshCw className="animate-spin" size={16} /> : <FolderTree size={16} />}
+              {processing ? 'Processando Triangulação...' : 'Confirmar e Processar'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === 'DONE_VIEW') {
+    return (
+      <div className="space-y-6 text-center py-16 bg-white rounded-2xl border border-slate-200 shadow-sm max-w-2xl mx-auto">
+        <div className="w-24 h-24 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-8 shadow-inner border-4 border-white">
+          <CheckCircle2 size={48} />
+        </div>
+        <h3 className="text-3xl font-black text-slate-900 uppercase italic tracking-tight mb-3">Análise Concluída!</h3>
+        <p className="text-sm text-slate-500 font-bold uppercase tracking-widest max-w-sm mx-auto mb-10 leading-relaxed">
+          Os dados foram processados seguindo a metodologia RP.<br />
+          A triangulação por Unidade e Setor já está disponível.
+        </p>
+        <div className="flex flex-col items-center gap-4">
+          <button onClick={() => {
+            if (onComplete) {
+              // Quando chamar onComplete, ele vai salvar no banco e trocar de aba para Análise
+              onComplete(domains, unitBreakdown || {});
+            }
+          }}
+            className="px-10 py-4 bg-slate-900 text-white rounded-xl font-black uppercase text-sm tracking-widest hover:bg-slate-800 transition-all shadow-xl active:scale-95">
+            Confirmar e Ver Painel
+          </button>
+          <button onClick={() => { clearFileCache(); setView('BATCH_UPLOAD'); }} className="text-xs font-black text-slate-400 uppercase tracking-widest hover:text-blue-600 transition-colors">
+            Refazer Importação
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
 }

@@ -37,13 +37,38 @@ import SettingsView from './components/SettingsView';
 import LoginScreen from './components/LoginScreen';
 
 type View = 'dashboard' | 'companies' | 'assessments' | 'inventory' | 'parameters';
+type SubView = 'dados' | 'analise' | 'tabulacao' | 'pgr';
+
+// Hook que persiste o estado no localStorage automaticamente
+function usePersistedState<T>(key: string, defaultValue: T): [T, React.Dispatch<React.SetStateAction<T>>] {
+  const [state, setState] = useState<T>(() => {
+    try {
+      const stored = localStorage.getItem(`conexarp_${key}`);
+      return stored ? JSON.parse(stored) : defaultValue;
+    } catch {
+      return defaultValue;
+    }
+  });
+
+  const setPersistedState: React.Dispatch<React.SetStateAction<T>> = (value) => {
+    setState(prev => {
+      const next = typeof value === 'function' ? (value as (prev: T) => T)(prev) : value;
+      try { localStorage.setItem(`conexarp_${key}`, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+
+  return [state, setPersistedState];
+}
 
 export default function App() {
   const { user, profile, loading, signOut } = useAuth();
-  const [activeView, setActiveView] = useState<View>('dashboard');
-  const [assessmentSubView, setAssessmentSubView] = useState<'dados' | 'analise' | 'tabulacao' | 'pgr'>('dados');
-  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
-  const [activeAssessmentId, setActiveAssessmentId] = useState<string | null>(null);
+
+  // Estados de navegação persistidos — sobrevivem a trocas de aba e refreshes
+  const [activeView, setActiveView]               = usePersistedState<View>('activeView', 'dashboard');
+  const [assessmentSubView, setAssessmentSubView] = usePersistedState<SubView>('assessmentSubView', 'dados');
+  const [selectedCompanyId, setSelectedCompanyId] = usePersistedState<string | null>('selectedCompanyId', null);
+  const [activeAssessmentId, setActiveAssessmentId] = usePersistedState<string | null>('activeAssessmentId', null);
 
   const { 
     companies, 
@@ -94,27 +119,54 @@ export default function App() {
   }, [currentAssessment]);
 
   const createNewAssessment = async (orgId: string) => {
-    const id = crypto.randomUUID();
-    const newAssessment: Assessment = {
-      id,
-      companyId: orgId,
-      status: AssessmentStatus.IN_PROGRESS,
-      domains: DOMAINS.map(d => ({ ...d, employeeMean: 0, managerMean: 0, criticalFrequency: 0 })),
-      sectorBreakdown: {},
-      checklist: { conforming: 0, partial: 0, nonConforming: 0, notApplicable: 0 },
-      actions: [],
-      triangulationScore: 0,
-      riskScore: 0,
-      probability: 1,
-      severity: 1,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
+    try {
+      // Gera UUID v4 válido — compatível com o tipo uuid do PostgreSQL
+      const generateUUID = (): string => {
+        if (typeof window !== 'undefined' && window.crypto?.randomUUID) {
+          return window.crypto.randomUUID();
+        }
+        // Fallback RFC 4122 UUID v4
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+          const r = Math.random() * 16 | 0;
+          const v = c === 'x' ? r : (r & 0x3 | 0x8);
+          return v.toString(16);
+        });
+      };
+      const id = generateUUID();
+      const newAssessment: Assessment = {
+        id,
+        companyId: orgId,
+        unitId: '',
+        sectorId: '',
+        gesId: '',
+        status: AssessmentStatus.IN_PROGRESS,
+        startDate: new Date().toISOString(),
+        domains: DOMAINS.map(d => ({ ...d, employeeMean: 0, managerMean: 0, criticalFrequency: 0 })),
+        sectorBreakdown: {},
+        unitBreakdown: {},
+        checklist: { conforming: 0, partial: 0, nonConforming: 0, notApplicable: 0 },
+        actions: [],
+        triangulationScore: 0,
+        riskScore: 0,
+        probability: 1,
+        severity: 1,
+      };
 
-    await saveAssessment(newAssessment);
-    setActiveAssessmentId(id);
-    setActiveView('assessments');
-    setAssessmentSubView('dados');
+      await saveAssessment(newAssessment);
+      setActiveAssessmentId(id);
+      setActiveView('assessments');
+      setAssessmentSubView('dados');
+    } catch (error: any) {
+      console.error('[ConexaRP] Erro ao criar nova avaliação:', error);
+      alert(`Erro ao criar nova avaliação: ${error.message || 'Erro desconhecido'}`);
+    }
+  };
+
+  const handleCreateCompany = async (company: any) => {
+    const newOrg = await createCompany(company);
+    if (newOrg?.id) {
+      setSelectedCompanyId(newOrg.id);
+    }
   };
 
   if (dataLoading || loading) {
@@ -199,7 +251,14 @@ export default function App() {
                   SuperAdmin
                 </span>
               )}
-              <button onClick={signOut} className="text-[8px] text-slate-500 uppercase font-black hover:text-rose-400 flex items-center gap-1 mt-1">
+              <button 
+                onClick={() => {
+                  ['activeView','assessmentSubView','selectedCompanyId','activeAssessmentId']
+                    .forEach(k => localStorage.removeItem(`conexarp_${k}`));
+                  signOut();
+                }} 
+                className="text-[8px] text-slate-500 uppercase font-black hover:text-rose-400 flex items-center gap-1 mt-1"
+              >
                 <LogOut size={10} /> Sair / Logout
               </button>
             </div>
@@ -241,7 +300,7 @@ export default function App() {
           {activeView === 'companies' && (
             <OrgManagement 
               companies={companies} 
-              onCreateCompany={createCompany}
+              onCreateCompany={handleCreateCompany}
               onUpdateCompany={updateCompany}
               onDeleteCompany={deleteCompany}
               assessments={assessments}
@@ -351,6 +410,8 @@ export default function App() {
                         overallMeanManager={managerOverallMean}
                         sectorBreakdown={currentAssessment.sectorBreakdown || {}}
                         setSectorBreakdown={(s) => saveAssessment({ id: currentAssessment.id, sectorBreakdown: s })}
+                        unitBreakdown={currentAssessment.unitBreakdown || {}}
+                        setUnitBreakdown={(u) => saveAssessment({ id: currentAssessment.id, unitBreakdown: u })}
                         onNewSectors={(names) => {
                           if (!currentCompany) return;
                           
@@ -381,8 +442,20 @@ export default function App() {
                              updateCompany(currentCompany.id, { units: finalUnits });
                           }
                         }}
-                        onComplete={(newDomains, newSectors) => {
-                          saveAssessment({ id: currentAssessment.id, domains: newDomains, sectorBreakdown: newSectors });
+                        onNewUnits={(names) => {
+                          if (!currentCompany) return;
+                          const updatedUnits = [...(currentCompany.units || [])];
+                          let hasChanges = false;
+                          names.forEach(name => {
+                            if (!updatedUnits.some(u => u.name.toUpperCase() === name.toUpperCase())) {
+                              updatedUnits.push({ id: crypto.randomUUID(), name, sectors: [] });
+                              hasChanges = true;
+                            }
+                          });
+                          if (hasChanges) updateCompany(currentCompany.id, { units: updatedUnits });
+                        }}
+                        onComplete={(newDomains, newUnits) => {
+                          saveAssessment({ id: currentAssessment.id, domains: newDomains, unitBreakdown: newUnits });
                         }}
                      />
                    )}
