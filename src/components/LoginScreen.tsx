@@ -44,7 +44,7 @@ export default function LoginScreen() {
           <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-900/50 mx-auto mb-4">
             <Shield size={32} className="text-white" />
           </div>
-          <h1 className="font-black text-2xl tracking-tighter text-white italic uppercase">Conexa Risk</h1>
+          <h1 className="font-black text-2xl tracking-tighter text-white italic uppercase">TRIAR Conexa</h1>
           <p className="text-[10px] text-blue-400 font-black uppercase tracking-widest mt-1">Plataforma Especialista GRO</p>
         </div>
 

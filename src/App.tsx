@@ -194,7 +194,7 @@ export default function App() {
               <Shield size={24} className="text-white" />
             </div>
             <div>
-              <h1 className="font-black text-lg tracking-tighter leading-none italic uppercase">Conexa Risk</h1>
+              <h1 className="font-black text-lg tracking-tighter leading-none italic uppercase">TRIAR Conexa</h1>
               <p className="text-[9px] text-blue-400 font-black uppercase tracking-widest mt-1">Especialista GRO</p>
             </div>
           </div>
