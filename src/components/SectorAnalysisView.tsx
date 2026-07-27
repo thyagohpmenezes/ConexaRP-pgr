@@ -128,7 +128,7 @@ export default function SectorAnalysisView({ assessment, managerOverallMeanGloba
           const sectors = Object.entries(unitData.sectors || {});
           const isUnitOpen = expandedUnit === unitName || units.length === 1;
           
-          const sortedSectors = [...sectors].sort(([an, ad], [bn, bd]) => {
+          const sortedSectors = [...sectors].sort(([an, ad]: [string, any], [bn, bd]: [string, any]) => {
             const { rScore: ar } = calcSectorMetrics(ad, managerOverallMeanGlobal, checklistCriticalityGlobal);
             const { rScore: br } = calcSectorMetrics(bd, managerOverallMeanGlobal, checklistCriticalityGlobal);
             let cmp = 0;
@@ -182,7 +182,7 @@ export default function SectorAnalysisView({ assessment, managerOverallMeanGloba
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
-                      {sortedSectors.map(([sName, sData]) => {
+                      {sortedSectors.map(([sName, sData]: [string, any]) => {
                         const { tScore, rScore: rs, eMean } = calcSectorMetrics(sData, managerOverallMeanGlobal, checklistCriticalityGlobal);
                         const diff = tScore - triangulationScore;
                         const isSectorOpen = defaultExpandedAll || expandedSector === `${unitName}-${sName}`;

@@ -14,7 +14,8 @@ import {
   Bell,
   User,
   Activity,
-  FileText
+  FileText,
+  FolderSearch
 } from 'lucide-react';
 import { useData } from './lib/useData';
 import { useAuth } from './lib/AuthContext';
@@ -35,8 +36,9 @@ import ReportGenerator from './components/ReportGenerator';
 import InventoryView from './components/InventoryView';
 import SettingsView from './components/SettingsView';
 import LoginScreen from './components/LoginScreen';
+import SurveyManagerView from './components/survey-management/SurveyManagerView';
 
-type View = 'dashboard' | 'companies' | 'assessments' | 'inventory' | 'parameters';
+type View = 'dashboard' | 'surveys' | 'companies' | 'assessments' | 'inventory' | 'parameters';
 type SubView = 'dados' | 'analise' | 'tabulacao' | 'pgr';
 
 // Hook que persiste o estado no localStorage automaticamente
@@ -169,7 +171,8 @@ export default function App() {
     }
   };
 
-  if (dataLoading || loading) {
+  // Exibe a tela de carregamento global APENAS no carregamento inicial sem sessão de usuário
+  if ((dataLoading || loading) && !user) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="text-center">
@@ -218,6 +221,7 @@ export default function App() {
           <nav className="space-y-1">
             {[
               { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+              { id: 'surveys', label: 'Pesquisas', icon: FolderSearch },
               { id: 'companies', label: 'Empresas', icon: Building2 },
               { id: 'assessments', label: 'Avaliações', icon: Activity },
               { id: 'inventory', label: 'Inventário', icon: ClipboardList },
@@ -273,6 +277,7 @@ export default function App() {
           <div className="flex items-center gap-4">
             <h2 className="text-sm font-black text-slate-900 uppercase tracking-[0.2em] italic">
               {activeView === 'dashboard' ? 'Dashboard' : 
+               activeView === 'surveys' ? 'Gerenciamento de Pesquisas Organizacionais' :
                activeView === 'companies' ? 'Gestão de Organizações' : 
                activeView === 'assessments' ? 'Avaliação Atual' : 
                activeView === 'inventory' ? 'Inventário de Riscos' : 'Parâmetros'}
@@ -297,6 +302,10 @@ export default function App() {
         <div className="flex-1 overflow-y-auto bg-slate-50 p-8">
           {activeView === 'dashboard' && <Dashboard companies={companies} assessments={assessments} />}
           
+          <div style={{ display: activeView === 'surveys' ? 'block' : 'none' }}>
+            <SurveyManagerView />
+          </div>
+
           {activeView === 'companies' && (
             <OrgManagement 
               companies={companies} 

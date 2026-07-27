@@ -15,6 +15,7 @@ export enum MatrixColor {
 
 export enum AssessmentStatus {
   PLANNED = "PLANEJADA",
+  IN_PROGRESS = "EM ANDAMENTO",
   COLLECTING = "EM COLETA",
   ANALYZING = "EM ANÁLISE",
   VALIDATING = "VALIDAÇÃO TÉCNICA",
@@ -95,6 +96,8 @@ export interface Assessment {
   status: AssessmentStatus;
   startDate: string;
   endDate?: string;
+  createdAt?: string;
+  updatedAt?: string;
   domains: DomainData[];
   checklist: ChecklistData;
   triangulationScore: number;

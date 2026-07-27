@@ -74,7 +74,9 @@ export function useData() {
         setLoading(false);
         return;
       }
-      setLoading(true);
+      if (companies.length === 0 && assessments.length === 0) {
+        setLoading(true);
+      }
       try {
         const { data: orgs, error: orgsError } = await supabase.from('organizations').select('*').order('name');
         if (orgsError) {
@@ -100,7 +102,7 @@ export function useData() {
       }
     }
     loadInitialData();
-  }, [user]);
+  }, [user?.id]);
 
   const saveAssessment = async (assessment: Partial<Assessment> & { id: string }) => {
     try {

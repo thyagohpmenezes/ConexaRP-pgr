@@ -14,6 +14,7 @@ import { Assessment, RiskLevel, AssessmentStatus } from '../types';
 interface DashboardViewProps {
   assessments: Assessment[];
   activeAssessment?: Assessment | null;
+  companies?: any[];
 }
 
 export default function DashboardView({ assessments, activeAssessment }: DashboardViewProps) {
