@@ -1,4 +1,4 @@
-import { Company, SurveyStatus, SurveySummary, DashboardKpiSummary } from './types';
+import { Company, SurveyStatus, WorkflowState, SurveySummary, DashboardKpiSummary } from './types';
 
 /**
  * Total de respostas = colaboradores + gestores
@@ -101,6 +101,11 @@ export function calcularResumoEmpresa(company: Company): SurveySummary {
   const participationPercentage = calcularPercentual(totalResponses, company.employeeCount);
   const missingResponses = calcularRespostasFaltantes(totalResponses, company.employeeCount);
   const status = calcularStatus(collabResponses, managerResponses, company.employeeCount);
+  let workflowState: WorkflowState = 'CONFIGURING';
+  if (status === 'READY') workflowState = 'READY_FOR_TABULATION';
+  else if (status === 'WAITING_MANAGER') workflowState = 'WAITING_MANAGER';
+  else if (status === 'IN_PROGRESS') workflowState = 'COLLECTING';
+
   const lastUpdated = determinarUltimaAtualizacao(company);
 
   return {
@@ -112,6 +117,7 @@ export function calcularResumoEmpresa(company: Company): SurveySummary {
     participationPercentage,
     missingResponses,
     status,
+    workflowState,
     lastUpdated,
   };
 }

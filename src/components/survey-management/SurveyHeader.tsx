@@ -1,8 +1,9 @@
 import React from 'react';
-import { RefreshCw, Search, ShieldCheck, Activity } from 'lucide-react';
+import { RefreshCw, Search, ShieldCheck, Activity, Plus } from 'lucide-react';
 
 interface Props {
   onRefresh: () => void;
+  onOpenCreateModal?: () => void;
   loading: boolean;
   searchQuery: string;
   setSearchQuery: (val: string) => void;
@@ -11,6 +12,7 @@ interface Props {
 
 export const SurveyHeader: React.FC<Props> = ({
   onRefresh,
+  onOpenCreateModal,
   loading,
   searchQuery,
   setSearchQuery,
@@ -33,11 +35,11 @@ export const SurveyHeader: React.FC<Props> = ({
                 ConexaRP <span className="text-blue-400 font-extrabold not-italic">Monitor</span>
               </h1>
               <span className="px-2 py-0.5 bg-blue-500/20 text-blue-300 border border-blue-400/30 rounded text-[9px] font-black uppercase tracking-widest">
-                Domain Service Layer
+                Centro Operacional DE PESQUISAS
               </span>
             </div>
             <p className="text-slate-400 text-xs font-medium mt-0.5">
-              Camada de Serviços Desacoplada & Regras de Negócio Centralizadas
+              Gestão de Projetos de Pesquisa & Integração com Avaliação GRO/PGR
             </p>
           </div>
         </div>
@@ -50,10 +52,20 @@ export const SurveyHeader: React.FC<Props> = ({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Buscar cliente ou empresa..."
+              placeholder="Buscar projeto, empresa..."
               className="w-full bg-slate-800/80 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-xs font-semibold text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
             />
           </div>
+
+          {onOpenCreateModal && (
+            <button
+              onClick={onOpenCreateModal}
+              className="bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white px-4 py-2.5 rounded-xl font-black uppercase tracking-wider text-xs shadow-lg shadow-emerald-600/30 transition-all flex items-center gap-2"
+            >
+              <Plus size={15} />
+              Novo Projeto
+            </button>
+          )}
 
           <button
             onClick={onRefresh}
@@ -86,7 +98,7 @@ export const SurveyHeader: React.FC<Props> = ({
       <div className="flex items-center justify-between text-[10px] text-slate-400 font-bold uppercase tracking-widest pt-3 border-t border-slate-800/80">
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-          <span>Serviço MockSurveyService ativo (Interface ISurveyService)</span>
+          <span>Workflow Engine & Abstração ICollectionProvider ativos</span>
         </div>
         <div>
           Última sincronização: {lastSync ? lastSync.toLocaleTimeString() : 'N/A'}

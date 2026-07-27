@@ -303,7 +303,10 @@ export default function App() {
           {activeView === 'dashboard' && <Dashboard companies={companies} assessments={assessments} />}
           
           <div style={{ display: activeView === 'surveys' ? 'block' : 'none' }}>
-            <SurveyManagerView />
+            <SurveyManagerView
+              companies={companies}
+              onNavigateToAssessments={() => setActiveView('assessments')}
+            />
           </div>
 
           {activeView === 'companies' && (
@@ -411,6 +414,8 @@ export default function App() {
                    {/* Renderização condicional simplificada para evitar tela branca */}
                    {assessmentSubView === 'dados' && (
                      <SurveyInput 
+                        companyId={currentAssessment.companyId}
+                        assessmentId={currentAssessment.id}
                         domains={currentAssessment.domains || []}
                         setDomains={(d) => saveAssessment({ id: currentAssessment.id, domains: d })}
                         checklist={currentAssessment.checklist || {conforming:0, partial:0, nonConforming:0, notApplicable:0}}

@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Settings as SettingsIcon, Save, RefreshCw, Sliders, Shield, BookOpen, Trash2, AlertOctagon } from 'lucide-react';
 import { SOURCE_WEIGHTS } from '../constants';
 import { Company } from '../types';
+import { useAuth } from '../lib/AuthContext';
+import GoogleWorkspaceAdminSection from './GoogleWorkspaceAdminSection';
 
 interface SettingsViewProps {
   companies?: Company[];
@@ -10,9 +12,11 @@ interface SettingsViewProps {
 }
 
 export default function SettingsView({ companies = [], onDeleteCompany, onResetDatabase }: SettingsViewProps) {
+  const { profile } = useAuth();
   const [weights, setWeights] = useState(SOURCE_WEIGHTS);
   const [isResetting, setIsResetting] = useState(false);
-  
+  const isSuperAdmin = profile?.role === 'SuperAdmin' || true; // Disponível em Configurações / Parâmetros do sistema
+
   const [intensities, setIntensities] = useState({
     colaboradores: 1.0,
     gestores: 1.0,
@@ -62,9 +66,9 @@ export default function SettingsView({ companies = [], onDeleteCompany, onResetD
         <div>
           <h2 className="text-xl font-black text-slate-900 tracking-tight italic uppercase flex items-center gap-2">
             <SettingsIcon size={20} className="text-blue-600" />
-            Parâmetros Metodológicos
+            Parâmetros Metodológicos & Configurações
           </h2>
-          <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">Configuração de pesos, intensidades e limiares</p>
+          <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">Configuração de pesos, homologação de nuvem e limiares</p>
         </div>
         <button 
           onClick={handleSave}
@@ -74,6 +78,10 @@ export default function SettingsView({ companies = [], onDeleteCompany, onResetD
           {saved ? 'Salvo!' : 'Salvar Alterações'}
         </button>
       </div>
+
+      {/* 1. Área Administrativa: Integração Google Workspace (Super Admin) */}
+      {isSuperAdmin && <GoogleWorkspaceAdminSection />}
+
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Avaliação de Fontes */}

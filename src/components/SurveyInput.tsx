@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
-import { Users, UserCircle2, AlertCircle, Upload, CheckCircle2, ArrowRight, ArrowLeft, Database, FolderTree, Table as TableIcon, RefreshCw, Eye, EyeOff, BarChart2, RefreshCcw } from 'lucide-react';
+import { Users, UserCircle2, AlertCircle, Upload, CheckCircle2, ArrowRight, ArrowLeft, Database, FolderTree, Table as TableIcon, RefreshCw, Eye, EyeOff, BarChart2, RefreshCcw, Shield, Sparkles, Lock, RotateCcw } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { motion, AnimatePresence } from 'motion/react';
 import { DomainData, ChecklistData } from '../types';
 import { DOMAINS, EMPLOYEE_POSITIVE_ITEMS, MANAGER_POSITIVE_ITEMS } from '../constants';
+import { researchProjectService } from '../services/ResearchProjectService';
 
 interface SurveyInputProps {
+  companyId?: string;
+  assessmentId?: string;
   domains: DomainData[];
   setDomains: (d: DomainData[]) => void;
   checklist: ChecklistData;
@@ -111,10 +114,42 @@ function autoDetect(cols: string[], rows: any[], type: 'employee'|'manager'|'che
 
 
 
-export default function SurveyInput({ domains, setDomains, checklist, setChecklist, overallMeanEmployee, overallMeanManager, sectorBreakdown = {}, setSectorBreakdown, unitBreakdown = {}, setUnitBreakdown, onNewSectors, onNewUnits, onComplete }: SurveyInputProps) {
+export default function SurveyInput({ companyId, assessmentId, domains, setDomains, checklist, setChecklist, overallMeanEmployee, overallMeanManager, sectorBreakdown = {}, setSectorBreakdown, unitBreakdown = {}, setUnitBreakdown, onNewSectors, onNewUnits, onComplete }: SurveyInputProps) {
   const [view, setView] = useState<ViewState>('BATCH_UPLOAD');
   const [step, setStep] = useState<Step>('UPLOAD');
   const [processing, setProcessing] = useState(false);
+  const [workspaceLoading, setWorkspaceLoading] = useState<boolean>(false);
+
+  const linkedProject = React.useMemo(() => {
+    if (!companyId) return null;
+    const projects = researchProjectService.getProjectsByCompany(companyId);
+    return projects.find((p) => p.linkedAssessmentId === assessmentId) || projects[0] || null;
+  }, [companyId, assessmentId]);
+
+  const handleWorkspaceTabulation = async (reTabulate: boolean = false) => {
+    if (!linkedProject) return;
+    setWorkspaceLoading(true);
+    try {
+      const res = reTabulate
+        ? await researchProjectService.reExecuteTabulation(linkedProject.id)
+        : await researchProjectService.executeTabulation(linkedProject.id);
+      if (res && res.assessment) {
+        setDomains(res.assessment.domains || []);
+        if (setUnitBreakdown && res.assessment.unitBreakdown) setUnitBreakdown(res.assessment.unitBreakdown);
+        if (setSectorBreakdown && res.assessment.sectorBreakdown) setSectorBreakdown(res.assessment.sectorBreakdown);
+        if (onComplete) onComplete(res.assessment.domains || [], res.assessment.unitBreakdown || {});
+        alert(
+          reTabulate
+            ? '🚀 Tabulação atualizada e inventário recalculado via Google Workspace com sucesso!'
+            : '✅ Tabulação concluída via Google Workspace e vinculada com sucesso!'
+        );
+      }
+    } catch (e: any) {
+      alert(`Erro na tabulação do Google Workspace: ${e.message || 'Erro desconhecido'}`);
+    } finally {
+      setWorkspaceLoading(false);
+    }
+  };
 
   // Estado dos arquivos persistido no localStorage.
   // O objeto File não pode ser serializado, mas os dados parseados (data, columns, mapping) podem.
@@ -372,6 +407,59 @@ export default function SurveyInput({ domains, setDomains, checklist, setCheckli
   if (view === 'BATCH_UPLOAD') {
     return (
       <div className="space-y-6">
+        {/* Painel de Sincronização Direta & Trava de Tabulação com o Google Workspace */}
+        {linkedProject && (
+          <div className="bg-gradient-to-r from-slate-900 via-slate-900 to-blue-950 text-white rounded-3xl p-6 shadow-xl border border-blue-900/40 relative overflow-hidden">
+            <div className="absolute -top-12 -right-12 w-48 h-48 bg-blue-600/20 rounded-full blur-2xl pointer-events-none"></div>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
+              <div className="space-y-2 max-w-2xl">
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-0.5 bg-blue-500/20 text-blue-300 border border-blue-400/30 rounded text-[9px] font-black uppercase tracking-widest flex items-center gap-1">
+                    <Sparkles size={11} /> Centro Operacional de Pesquisas
+                  </span>
+                  {(linkedProject.status === 'FINISHED' || linkedProject.lastTabulatedAt) && (
+                    <span className="px-2.5 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 rounded text-[9px] font-black uppercase tracking-widest flex items-center gap-1">
+                      <Lock size={11} /> Tabulado & Bloqueado (GRO/PGR Protegido)
+                    </span>
+                  )}
+                </div>
+                <h3 className="text-lg font-black text-white uppercase tracking-tight">
+                  {linkedProject.title} ({linkedProject.period})
+                </h3>
+                <p className="text-slate-300 text-xs leading-relaxed font-medium">
+                  {linkedProject.status === 'FINISHED' || linkedProject.lastTabulatedAt
+                    ? 'Esta avaliação já consome dados diretamente das planilhas Google Sheets integradas. O inventário está bloqueado contra envios de planilhas manuais acidentais. Para recalcular o engajamento e incorporar novas respostas recebidas, utilize a função Tabular Novamente.'
+                    : 'Evite erros manuais de manipulação de arquivo de planilha (.xlsx). Sincronize e tabule as respostas diretamente dos formulários de Colaboradores e Gestores vinculados no seu Google Drive.'}
+                </p>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center gap-3 shrink-0">
+                {linkedProject.status === 'FINISHED' || linkedProject.lastTabulatedAt ? (
+                  <button
+                    type="button"
+                    disabled={workspaceLoading}
+                    onClick={() => handleWorkspaceTabulation(true)}
+                    className="w-full sm:w-auto bg-blue-600 hover:bg-blue-500 text-white font-black text-xs uppercase tracking-wider px-6 py-3.5 rounded-2xl shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+                  >
+                    <RotateCcw size={16} className={workspaceLoading ? 'animate-spin' : ''} />
+                    {workspaceLoading ? 'Atualizando...' : 'Tabular Novamente'}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={workspaceLoading}
+                    onClick={() => handleWorkspaceTabulation(false)}
+                    className="w-full sm:w-auto bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider px-6 py-3.5 rounded-2xl shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+                  >
+                    <TableIcon size={16} />
+                    {workspaceLoading ? 'Tabulando...' : 'Sincronizar & Tabular Direto do Workspace'}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
           <div className="mb-10 text-center max-w-2xl mx-auto">
             <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight italic mb-3">Triangulação de Dados Conexa</h2>
