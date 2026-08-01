@@ -32,6 +32,75 @@ export interface GoogleWorkspaceBinding {
   lastSyncedAt?: string;
 }
 
+/**
+ * Interface estrita para as colunas exatas da Planilha de Monitoramento Mestra (A2:F)
+ * Coluna A: empresa (string)
+ * Coluna B: colab (number - Respostas de Colaboradores)
+ * Coluna C: gestor (number - Respostas de Gestores)
+ * Coluna D: totalColaboradores (number - Quadro de funcionários)
+ * Coluna E: percentual (number - Progresso %)
+ * Coluna F: ultimaResposta (string - Data/Hora)
+ */
+export interface MonitoringSheetRow {
+  empresa: string;
+  colab: number;
+  gestor: number;
+  totalColaboradores: number;
+  percentual: number;
+  ultimaResposta: string;
+}
+
+/**
+ * Estrutura estrita de linha da Planilha Automática Mestra de Monitoramento (Single Source of Truth)
+ */
+export interface MasterSheetRow {
+  carimbo: string;
+  empresa: string;
+  grupoEconomico?: string;
+  tipoFormulario: 'COLABORADOR' | 'GESTOR' | 'DESCONHECIDO';
+  unidade: string;
+  setor: string;
+  cargo?: string;
+  p1?: number; p2?: number; p3?: number; p4?: number; p5?: number;
+  p6?: number; p7?: number; p8?: number; p9?: number; p10?: number;
+  p11?: number; p12?: number; p13?: number; p14?: number; p15?: number;
+  respostas: Record<string, any>;
+}
+
+/**
+ * Monitoramento sumarizado por empresa extraído da Planilha Mestra
+ */
+export interface MasterCompanyMonitoring {
+  empresaName: string;
+  economicGroup: string;
+  employeeResponses: number;
+  managerResponses: number;
+  totalResponses: number;
+  totalEmployees?: number;
+  percentual?: number;
+  lastResponseDate?: string;
+  collabRows: MasterSheetRow[];
+  managerRows: MasterSheetRow[];
+}
+
+/**
+ * Resultado da Sincronização Mestra da Edge Function
+ */
+export interface MasterSyncResult {
+  success: boolean;
+  scannedAt: string;
+  masterSheetId: string;
+  sheetTitle?: string;
+  totalRowsRead: number;
+  totalResponses: number;
+  companiesCount: number;
+  headerRow: string[];
+  rows: MasterSheetRow[];
+  companiesSummary: Record<string, MasterCompanyMonitoring>;
+  error?: string;
+}
+
+
 export type WorkflowState =
   | 'PLANNED'
   | 'CONFIGURING'

@@ -57,8 +57,8 @@ export class GoogleAuthService {
 
     const header = { alg: "RS256", typ: "JWT" };
     const scopes = [
-      "https://www.googleapis.com/auth/drive.readonly",
-      "https://www.googleapis.com/auth/spreadsheets.readonly"
+      "https://www.googleapis.com/auth/drive",
+      "https://www.googleapis.com/auth/spreadsheets"
     ].join(" ");
 
     const claimSet = {

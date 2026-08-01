@@ -6,18 +6,32 @@ export interface SheetMetrics {
   totalRows: number;
   responseCount: number;
   lastUpdated?: string;
+  error?: string;
 }
 
 export class SurveyMetricsService {
   private accessToken: string;
+  private interRequestDelayMs: number;
 
-  constructor(accessToken: string) {
+  constructor(accessToken: string, interRequestDelayMs = 100) {
     this.accessToken = accessToken;
+    this.interRequestDelayMs = interRequestDelayMs;
   }
 
-  private async fetchWithBackoff(url: string, retries = 3): Promise<any> {
-    for (let attempt = 0; attempt <= retries; attempt++) {
+  private async delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Requisição resiliente com backoff em 429 para garantir 100% de precisão sem perder leituras
+   */
+  private async fetchWithBackoff(url: string, maxRetries = 4): Promise<any> {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
+        if (this.interRequestDelayMs > 0 && attempt === 0) {
+          await this.delay(this.interRequestDelayMs);
+        }
+
         const response = await fetch(url, {
           headers: {
             Authorization: `Bearer ${this.accessToken}`,
@@ -26,11 +40,14 @@ export class SurveyMetricsService {
         });
 
         if (response.status === 429 || (response.status >= 500 && response.status < 600)) {
-          if (attempt === retries) {
-            throw new Error(`Google Sheets API HTTP ${response.status} após retentativas.`);
+          if (attempt === maxRetries) {
+            const errText = await response.text();
+            throw new Error(`Google Sheets API HTTP ${response.status}: ${errText}`);
           }
-          const backoff = Math.pow(2, attempt) * 300;
-          await new Promise((resolve) => setTimeout(resolve, backoff));
+
+          const backoff = Math.pow(2, attempt) * 600 + Math.random() * 200;
+          console.warn(`[Google Sheets API] Rate Limit HTTP ${response.status} (Tentativa ${attempt + 1}/${maxRetries}). Pausando ${(backoff / 1000).toFixed(2)}s...`);
+          await this.delay(backoff);
           continue;
         }
 
@@ -40,44 +57,43 @@ export class SurveyMetricsService {
         }
 
         return await response.json();
-      } catch (err) {
-        if (attempt === retries) throw err;
-        const backoff = Math.pow(2, attempt) * 300;
-        await new Promise((resolve) => setTimeout(resolve, backoff));
+      } catch (err: any) {
+        if (attempt === maxRetries) throw err;
+        const backoff = Math.pow(2, attempt) * 600 + Math.random() * 200;
+        await this.delay(backoff);
       }
     }
   }
 
+  /**
+   * Obtém a contagem exata de respostas de uma planilha Google Sheets (Intervalo A1:A5000)
+   */
   async getSpreadsheetMetrics(spreadsheetId: string): Promise<SheetMetrics> {
-    try {
-      // 1. Obtém metadados da planilha
-      const metaUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?includeGridData=false`;
-      const meta = await this.fetchWithBackoff(metaUrl);
-      const spreadsheetName = meta.properties?.title || "Planilha de Respostas";
+    if (!spreadsheetId) {
+      return { spreadsheetId: "", totalRows: 0, responseCount: 0 };
+    }
 
-      // 2. Consulta a primeira coluna da primeira aba para obter o número total de registros
-      const sheetTitle = meta.sheets?.[0]?.properties?.title || "Respostas ao formulário 1";
-      const range = encodeURIComponent(`'${sheetTitle}'!A:A`);
+    try {
+      const range = encodeURIComponent("A1:A5000");
       const valuesUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?majorDimension=ROWS`;
 
       const valuesData = await this.fetchWithBackoff(valuesUrl);
-      const rows = valuesData.values || [];
+      const rows = valuesData?.values || [];
       const totalRows = rows.length;
-      // Subtrai 1 para ignorar a linha do cabeçalho ("Carimbo de data/hora")
       const responseCount = Math.max(0, totalRows - 1);
 
       return {
         spreadsheetId,
-        spreadsheetName,
         totalRows,
         responseCount
       };
     } catch (error: any) {
-      console.warn(`Aviso ao obter métricas da planilha ${spreadsheetId}:`, error.message);
+      console.warn(`[Google Workspace Sync] Falha na leitura da planilha ${spreadsheetId}: ${error.message || error}`);
       return {
         spreadsheetId,
         totalRows: 0,
-        responseCount: 0
+        responseCount: 0,
+        error: error?.message || String(error)
       };
     }
   }

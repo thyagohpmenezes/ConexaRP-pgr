@@ -125,12 +125,16 @@ export const SurveyMetricsTable: React.FC<Props> = ({
           </thead>
           <tbody className="divide-y divide-slate-100 text-xs font-semibold text-slate-700">
             {summaries.map((item) => {
-              const pct = Math.min(100, Math.round(item.participationPercentage * 10) / 10);
+              const collabResp = item.collabResponses ?? item.employeeResponses ?? 0;
+              const managerResp = item.managerResponses ?? 0;
+              const totalResp = collabResp + managerResp;
+              const totalParticipants = item.company?.employeeCount || item.totalEmployees || 100;
+              const pct = totalParticipants > 0 ? Number(((totalResp / totalParticipants) * 100).toFixed(1)) : 0;
+
+              const isReadyForTabulation = pct >= 70 && managerResp >= 1;
               const company = item.company;
               const project = item.project;
               const hasBinding = !!project?.workspaceBinding;
-              const isReadyForTabulation =
-                item.workflowState === 'READY_FOR_TABULATION' || item.workflowState === 'WAITING_MANAGER';
               const isTabulated =
                 item.workflowState === 'FINISHED' ||
                 item.workflowState === 'ASSESSMENT_CREATED' ||

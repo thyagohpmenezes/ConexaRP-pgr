@@ -37,7 +37,26 @@ export class GoogleWorkspaceScanner {
     this.accessToken = accessToken;
   }
 
-  private async fetchWithBackoff(url: string, retries = 4): Promise<any> {
+  /**
+   * Sanitiza a string do ID da pasta removendo caminhos de URL, parâmetros de query ou barras no final
+   */
+  public cleanFolderId(rawFolderId: string): string {
+    if (!rawFolderId) return "";
+    let clean = rawFolderId.trim();
+
+    if (clean.includes("/folders/")) {
+      clean = clean.split("/folders/")[1];
+    }
+    if (clean.includes("?")) {
+      clean = clean.split("?")[0];
+    }
+    if (clean.includes("#")) {
+      clean = clean.split("#")[0];
+    }
+    return clean.replace(/\/+$/, "");
+  }
+
+  private async fetchWithBackoff(url: string, retries = 3): Promise<any> {
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
         const response = await fetch(url, {
@@ -49,9 +68,18 @@ export class GoogleWorkspaceScanner {
 
         if (response.status === 429 || (response.status >= 500 && response.status < 600)) {
           if (attempt === retries) {
-            throw new Error(`Google API HTTP ${response.status} após ${retries} tentativas.`);
+            const errText = await response.text();
+            throw new Error(`Google Drive API HTTP ${response.status} após ${retries} tentativas: ${errText}`);
           }
-          const backoff = Math.pow(2, attempt) * 250 + Math.random() * 100;
+
+          const retryAfter = response.headers.get("retry-after");
+          let backoff = Math.pow(2, attempt) * 400 + Math.random() * 150;
+          if (retryAfter) {
+            const sec = parseInt(retryAfter, 10);
+            if (!isNaN(sec) && sec > 0) backoff = sec * 1000;
+          }
+
+          console.warn(`[Google Drive API] Rate limit HTTP ${response.status} (Tentativa ${attempt + 1}/${retries}). Pausando ${(backoff / 1000).toFixed(2)}s...`);
           await new Promise((resolve) => setTimeout(resolve, backoff));
           continue;
         }
@@ -62,38 +90,41 @@ export class GoogleWorkspaceScanner {
         }
 
         return await response.json();
-      } catch (err) {
+      } catch (err: any) {
         if (attempt === retries) throw err;
-        const backoff = Math.pow(2, attempt) * 250 + Math.random() * 100;
+        const backoff = Math.pow(2, attempt) * 400 + Math.random() * 150;
+        console.warn(`[Google Drive API] Aviso na varredura: ${err?.message || err}. Retentando em ${(backoff / 1000).toFixed(2)}s...`);
         await new Promise((resolve) => setTimeout(resolve, backoff));
       }
     }
   }
 
-  async listFolderContents(folderId: string): Promise<DiscoveredFile[]> {
+  async listFolderContents(rawFolderId: string): Promise<DiscoveredFile[]> {
+    const folderId = this.cleanFolderId(rawFolderId);
     const files: DiscoveredFile[] = [];
     let pageToken: string | undefined = undefined;
 
     do {
       const q = encodeURIComponent(`'${folderId}' in parents and trashed = false`);
       const fields = encodeURIComponent("nextPageToken,files(id,name,mimeType,parents,createdTime,modifiedTime,webViewLink)");
-      let url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=${fields}&pageSize=100`;
+      // Garante suporte a Shared Drives e pastas compartilhadas em todas as chamadas
+      let url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=${fields}&pageSize=100&supportsAllDrives=true&includeItemsFromAllDrives=true`;
       if (pageToken) {
         url += `&pageToken=${encodeURIComponent(pageToken)}`;
       }
 
       const data = await this.fetchWithBackoff(url);
-      if (data.files && Array.isArray(data.files)) {
+      if (data && data.files && Array.isArray(data.files)) {
         files.push(...data.files);
       }
-      pageToken = data.nextPageToken;
+      pageToken = data?.nextPageToken;
     } while (pageToken);
 
     return files;
   }
 
-  classifyForm(fileName: string): 'EMPLOYEE' | 'MANAGER' | 'CHECKLIST' | 'UNKNOWN' {
-    const upper = fileName.toUpperCase();
+  classifyForm(fileName: string = ""): 'EMPLOYEE' | 'MANAGER' | 'CHECKLIST' | 'UNKNOWN' {
+    const upper = (fileName || "").toUpperCase();
     if (upper.includes("GEST") || upper.includes("LIDER") || upper.includes("DIRETOR") || upper.includes("GERENTE")) {
       return "MANAGER";
     }
@@ -106,42 +137,69 @@ export class GoogleWorkspaceScanner {
     return "UNKNOWN";
   }
 
-  async scanTreeRecursively(folderId: string, currentPath: string[] = []): Promise<DiscoveredFolder> {
-    const items = await this.listFolderContents(folderId);
+  /**
+   * Normaliza o nome do arquivo removendo espaços extras e convertendo para minúsculas
+   */
+  private normalizeName(name: string = ""): string {
+    return (name || "").trim().toLowerCase().replace(/\s+/g, " ");
+  }
 
-    const folderInfoUrl = `https://www.googleapis.com/drive/v3/files/${folderId}?fields=id,name`;
+  async scanTreeRecursively(rawFolderId: string, currentPath: string[] = [], depth = 0): Promise<DiscoveredFolder> {
+    const folderId = this.cleanFolderId(rawFolderId);
+    console.log(`[Google Workspace Scanner] Varrendo pasta ID: "${folderId}" (profundidade ${depth})...`);
+
+    let items: DiscoveredFile[] = [];
+    try {
+      items = await this.listFolderContents(folderId);
+    } catch (err: any) {
+      console.warn(`[Google Workspace Scanner] Falha ao listar conteúdo da pasta "${folderId}": ${err?.message || err}`);
+    }
+
+    const folderInfoUrl = `https://www.googleapis.com/drive/v3/files/${folderId}?fields=id,name&supportsAllDrives=true`;
     let folderName = "Pasta Raiz";
     try {
       const info = await this.fetchWithBackoff(folderInfoUrl);
-      folderName = info.name || folderName;
+      folderName = info?.name || folderName;
     } catch {
-      // Usa o fallback
+      // Usa o fallback gracioso
     }
 
     const updatedPath = [...currentPath, folderName];
 
-    const childFolders = items.filter((i) => i.mimeType === "application/vnd.google-apps.folder");
-    const rawForms = items.filter((i) => i.mimeType === "application/vnd.google-apps.form");
-    const rawSheets = items.filter((i) => i.mimeType === "application/vnd.google-apps.spreadsheet");
+    const childFolders = items.filter((i) => i && i.mimeType === "application/vnd.google-apps.folder");
+    const rawForms = items.filter((i) => i && i.mimeType === "application/vnd.google-apps.form");
+    const rawSheets = items.filter((i) => i && i.mimeType === "application/vnd.google-apps.spreadsheet");
 
-    // Associa planilhas aos formulários encontrados na mesma pasta por proximidade de nomenclatura
     const forms: DiscoveredForm[] = rawForms.map((form) => {
-      const formType = this.classifyForm(form.name);
+      const formType = this.classifyForm(form?.name || "");
+      const formNameNormalized = this.normalizeName(form?.name);
       
-      // Busca a planilha correspondente na mesma pasta
+      // Nome exato esperado da planilha conforme convenção: "<nome do formulário> (respostas)"
+      const expectedSheetNameNormalized = `${formNameNormalized} (respostas)`;
+
+      // 1. Tenta correspondência exata determinística por convenção de nome
       let matchedSheet = rawSheets.find((sheet) => {
-        const sUpper = sheet.name.toUpperCase();
-        const fUpper = form.name.toUpperCase();
-        return sUpper.includes(fUpper) || fUpper.includes(sUpper) || sUpper.includes("RESPOSTAS");
+        const sheetNameNormalized = this.normalizeName(sheet?.name);
+        return sheetNameNormalized === expectedSheetNameNormalized;
       });
 
-      if (!matchedSheet && rawSheets.length === 1) {
-        matchedSheet = rawSheets[0];
+      // 2. Fallback determinístico por tipo de formulário caso a nomenclatura tenha pequenas variações sem usar includes genérico
+      if (!matchedSheet && rawSheets.length > 0) {
+        matchedSheet = rawSheets.find((sheet) => {
+          const sNorm = this.normalizeName(sheet?.name);
+          if (formType === 'MANAGER') {
+            return (sNorm.includes("gestor") || sNorm.includes("gestores") || sNorm.includes("lider")) && sNorm.includes("respostas");
+          }
+          if (formType === 'EMPLOYEE') {
+            return (sNorm.includes("colaborador") || sNorm.includes("colaboradores") || sNorm.includes("funcio")) && sNorm.includes("respostas");
+          }
+          return false;
+        });
       }
 
       return {
         id: form.id,
-        name: form.name,
+        name: form.name || "Formulário sem nome",
         formType,
         folderId,
         folderPath: updatedPath,
@@ -152,9 +210,16 @@ export class GoogleWorkspaceScanner {
     });
 
     const subFolders: DiscoveredFolder[] = [];
-    for (const sub of childFolders) {
-      const subTree = await this.scanTreeRecursively(sub.id, updatedPath);
-      subFolders.push(subTree);
+    // Limite máximo de profundidade de 3 níveis para evitar estouro de timeout
+    if (depth < 3) {
+      for (const sub of childFolders) {
+        try {
+          const subTree = await this.scanTreeRecursively(sub.id, updatedPath, depth + 1);
+          subFolders.push(subTree);
+        } catch (subErr: any) {
+          console.warn(`[Google Workspace Scanner] Pulo na subpasta "${sub.name}" (${sub.id}): ${subErr?.message || subErr}`);
+        }
+      }
     }
 
     return {

@@ -1,7 +1,7 @@
 // src/hooks/useGoogleWorkspaceMonitoring.ts
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Company } from '../domain/types';
-import { googleWorkspaceBackendService, GoogleWorkspaceSyncResult, WorkspaceDiscoveredFolder } from '../services/GoogleWorkspaceBackendService';
+import { Company, MasterSheetRow, MasterCompanyMonitoring, MasterSyncResult } from '../domain/types';
+import { googleWorkspaceBackendService } from '../services/GoogleWorkspaceBackendService';
 
 // Status da Coleta da Empresa (Gerenciado Manualmente)
 export type CompanySurveyStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED';
@@ -18,6 +18,7 @@ export interface MonitoringSurveyItem {
   economicGroup: string;
   companyId: string;
   companyName: string;
+  linkedCompanyName?: string;
   surveyName: string;
   employeeResponses: number;
   managerResponses: number;
@@ -26,9 +27,14 @@ export interface MonitoringSurveyItem {
   companySurveyStatus: CompanySurveyStatus;
   overallStatus: OverallSurveyStatus;
   lastSyncedAt: Date;
+  lastResponseDateStr?: string;
   employeeFormUrl?: string;
   managerFormUrl?: string;
   folderPath: string[];
+  isLinked: boolean;
+  folderId: string;
+  collabRows?: MasterSheetRow[];
+  managerRows?: MasterSheetRow[];
 }
 
 export interface MonitoringFilters {
@@ -48,15 +54,30 @@ export interface MonitoringKpis {
   overallAverageParticipation: number;
 }
 
-const COMPANY_STATUS_STORAGE_KEY_PREFIX = 'conexarp_company_status_';
+function getPersistedCompanyStatus(surveyId: string, defaultStatus: CompanySurveyStatus): CompanySurveyStatus {
+  try {
+    const saved = localStorage.getItem(`conexarp_company_survey_status_${surveyId}`);
+    if (saved && (saved === 'NOT_STARTED' || saved === 'IN_PROGRESS' || saved === 'COMPLETED')) {
+      return saved as CompanySurveyStatus;
+    }
+  } catch {}
+  return defaultStatus;
+}
+
+function getPersistedCompanyLink(surveyId: string): string | null {
+  try {
+    return localStorage.getItem(`conexarp_company_manual_link_${surveyId}`);
+  } catch {}
+  return null;
+}
 
 export function useGoogleWorkspaceMonitoring(companies: Company[] = []) {
-  const [loading, setLoading] = useState<boolean>(false);
+  const [rootFolderId, setRootFolderId] = useState<string>(() => googleWorkspaceBackendService.getMasterSheetId());
+  const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
-  const [rootFolderId, setRootFolderId] = useState<string>(() => googleWorkspaceBackendService.getRootFolderId());
-  const [rawSyncResult, setRawSyncResult] = useState<GoogleWorkspaceSyncResult | null>(null);
   const [surveyItems, setSurveyItems] = useState<MonitoringSurveyItem[]>([]);
+  const [rawSyncResult, setRawSyncResult] = useState<MasterSyncResult | null>(null);
 
   const [filters, setFilters] = useState<MonitoringFilters>({
     companyId: 'ALL',
@@ -64,17 +85,6 @@ export function useGoogleWorkspaceMonitoring(companies: Company[] = []) {
     status: 'ALL',
     searchQuery: '',
   });
-
-  // Lê o status da Pesquisa da Empresa persistido no localStorage
-  const getPersistedCompanyStatus = (id: string, defaultStatus: CompanySurveyStatus = 'NOT_STARTED'): CompanySurveyStatus => {
-    try {
-      const stored = localStorage.getItem(`${COMPANY_STATUS_STORAGE_KEY_PREFIX}${id}`);
-      if (stored && ['NOT_STARTED', 'IN_PROGRESS', 'COMPLETED'].includes(stored)) {
-        return stored as CompanySurveyStatus;
-      }
-    } catch {}
-    return defaultStatus;
-  };
 
   // Regra Inegociável da Metodologia RP para cálculo da Situação Geral Triangulada
   const calculateOverallStatus = (
@@ -94,147 +104,150 @@ export function useGoogleWorkspaceMonitoring(companies: Company[] = []) {
     return 'READY_FOR_TABULATION';
   };
 
-  // Mapeia recursivamente a árvore do Google Drive para a estrutura de Pesquisa Psicossocial
-  const parseTreeToSurveyItems = useCallback((rootNode: WorkspaceDiscoveredFolder, companyList: Company[]): MonitoringSurveyItem[] => {
+  /**
+   * Converte o payload da Planilha Mestra Única em itens do Dashboard de Acompanhamento
+   */
+  const parseMasterSheetToSurveyItems = useCallback((syncResult: MasterSyncResult, companyList: Company[]): MonitoringSurveyItem[] => {
     const items: MonitoringSurveyItem[] = [];
+    const summaryMap = syncResult.companiesSummary || {};
+    let summaryEntries: MasterCompanyMonitoring[] = Object.values(summaryMap);
 
-    function traverse(node: WorkspaceDiscoveredFolder, pathChain: string[]) {
-      const currentPath = [...pathChain, node.name];
+    // Fallback: se companiesSummary veio vazio mas rows possui linhas
+    if (summaryEntries.length === 0 && (syncResult.rows || (syncResult as any).rows)) {
+      const rawRows: any[] = syncResult.rows || (syncResult as any).rows || [];
+      rawRows.forEach((r: any) => {
+        if (!r.empresa) return;
+        const empName = String(r.empresa).trim();
+        const colab = typeof r.colab === 'number' ? r.colab : (r.employeeResponses || 0);
+        const gestor = typeof r.gestor === 'number' ? r.gestor : (r.managerResponses || 0);
+        const totalColaboradores = r.totalColaboradores || r.totalEmployees || 0;
+        const percentual = r.percentual !== undefined ? r.percentual : 0;
+        const lastResponseDate = r.ultimaResposta || r.lastResponseDate || '';
 
-      if (node.forms && node.forms.length > 0) {
-        const empForm = node.forms.find(f => f.formType === 'EMPLOYEE');
-        const mngForm = node.forms.find(f => f.formType === 'MANAGER');
-
-        const empResponses = empForm?.metrics?.responseCount || 0;
-        const mngResponses = mngForm?.metrics?.responseCount || 0;
-        const totalResp = empResponses + mngResponses;
-
-        const folderNameUpper = node.name.toUpperCase();
-        const pathUpper = currentPath.join(' ').toUpperCase();
-
-        const matchedCompany = companyList.find(c => 
-          folderNameUpper.includes(c.name.toUpperCase()) || 
-          pathUpper.includes(c.name.toUpperCase())
-        ) || companyList[0];
-
-        const companyName = matchedCompany ? matchedCompany.name : (node.name || 'Empresa Geral');
-        const economicGroup = matchedCompany?.economicGroupName || (currentPath.length >= 2 ? currentPath[1] : 'Independente');
-        
-        const totalEmployees = matchedCompany?.employeeCount && matchedCompany.employeeCount > 0 
-          ? matchedCompany.employeeCount 
-          : 100;
-
-        const participationPercentage = totalEmployees > 0 
-          ? Number(((totalResp / totalEmployees) * 100).toFixed(1)) 
-          : 0;
-
-        const itemId = node.id || `survey_${items.length + 1}`;
-        const companySurveyStatus = getPersistedCompanyStatus(itemId, 'NOT_STARTED');
-        const overallStatus = calculateOverallStatus(participationPercentage, mngResponses, companySurveyStatus);
-
-        items.push({
-          id: itemId,
-          economicGroup,
-          companyId: matchedCompany?.id || 'comp_default',
-          companyName,
-          surveyName: node.name.startsWith('Pasta') ? `Pesquisa Psicossocial - ${companyName}` : node.name,
-          employeeResponses: empResponses,
-          managerResponses: mngResponses,
-          totalEmployees,
-          participationPercentage,
-          companySurveyStatus,
-          overallStatus,
-          lastSyncedAt: new Date(),
-          employeeFormUrl: empForm?.webViewLink,
-          managerFormUrl: mngForm?.webViewLink,
-          folderPath: currentPath
+        summaryEntries.push({
+          empresaName: empName,
+          economicGroup: 'Corporativo',
+          employeeResponses: colab,
+          managerResponses: gestor,
+          totalResponses: colab + gestor,
+          totalEmployees: totalColaboradores,
+          percentual,
+          lastResponseDate,
+          collabRows: [],
+          managerRows: []
         });
-      }
-
-      if (node.subFolders && Array.isArray(node.subFolders)) {
-        for (const sub of node.subFolders) {
-          traverse(sub, currentPath);
-        }
-      }
+      });
     }
 
-    traverse(rootNode, []);
+    let recognizedCount = 0;
+    let linkedCount = 0;
+
+    summaryEntries.forEach(compSummary => {
+      const compName = compSummary.empresaName;
+      const compNameUpper = compName.toUpperCase().trim();
+      const itemId = `master_${compNameUpper.replace(/\s+/g, '_')}`;
+
+      const manualLinkedCompanyId = getPersistedCompanyLink(itemId);
+
+      // Busca correspondência com empresas cadastradas no ConexaRP (manual ou automática)
+      let matchedCompany = manualLinkedCompanyId 
+        ? companyList.find(c => c.id === manualLinkedCompanyId)
+        : companyList.find(c =>
+            c.name.toUpperCase().trim() === compNameUpper ||
+            c.name.toUpperCase().trim().includes(compNameUpper) ||
+            compNameUpper.includes(c.name.toUpperCase().trim())
+          );
+
+      const isLinked = Boolean(matchedCompany);
+      if (isLinked) {
+        linkedCount++;
+        recognizedCount++;
+      }
+
+      const empResponses = compSummary.employeeResponses;
+      const mngResponses = compSummary.managerResponses;
+
+      const totalEmployees = (compSummary.totalEmployees && compSummary.totalEmployees > 0)
+        ? compSummary.totalEmployees
+        : (matchedCompany?.employeeCount && matchedCompany.employeeCount > 0 ? matchedCompany.employeeCount : 100);
+
+      const participationPercentage = (compSummary.percentual !== undefined && compSummary.percentual > 0)
+        ? compSummary.percentual
+        : (totalEmployees > 0 ? Number(((empResponses / totalEmployees) * 100).toFixed(1)) : 0);
+
+      const companySurveyStatus = getPersistedCompanyStatus(itemId, 'NOT_STARTED');
+      const overallStatus = calculateOverallStatus(participationPercentage, mngResponses, companySurveyStatus);
+
+      items.push({
+        id: itemId,
+        folderId: itemId,
+        economicGroup: matchedCompany?.economicGroupName || compSummary.economicGroup || (isLinked ? 'Corporativo' : 'Empresas Não Vinculadas'),
+        companyId: matchedCompany?.id || itemId,
+        companyName: compName, // Preserva exatamente a nomenclatura original da Coluna A da Planilha
+        linkedCompanyName: matchedCompany?.name,
+        surveyName: `Pesquisa Mestra - ${compName}`,
+        employeeResponses: empResponses,
+        managerResponses: mngResponses,
+        totalEmployees,
+        participationPercentage,
+        companySurveyStatus,
+        overallStatus,
+        lastSyncedAt: new Date(syncResult.scannedAt || Date.now()),
+        lastResponseDateStr: compSummary.lastResponseDate,
+        folderPath: ['Planilha Mestra', compName],
+        isLinked,
+        collabRows: compSummary.collabRows,
+        managerRows: compSummary.managerRows
+      });
+    });
+
+    console.log(`📊 [Planilha Mestra Sync] Total de empresas encontradas na Planilha Mestra: ${summaryEntries.length}`);
     return items;
   }, []);
 
-  // Dados iniciais baseados nas empresas cadastradas
-  const generateInitialDataFromCompanies = useCallback((companyList: Company[]): MonitoringSurveyItem[] => {
-    return companyList.map((comp, idx) => {
-      const empResp = [45, 85, 0, 78, 92][idx % 5];
-      const mngResp = [3, 2, 0, 0, 5][idx % 5];
-      const totalResp = empResp + mngResp;
-      const totalEmployees = comp.employeeCount && comp.employeeCount > 0 ? comp.employeeCount : 100;
-      const part = Number(((totalResp / totalEmployees) * 100).toFixed(1));
-      
-      const itemId = `survey_${comp.id}`;
-      // Simulação inicial para testes visuais das 3 partes
-      const defaultCompanyStatus: CompanySurveyStatus = idx === 1 ? 'COMPLETED' : idx === 3 ? 'IN_PROGRESS' : 'NOT_STARTED';
-      const companySurveyStatus = getPersistedCompanyStatus(itemId, defaultCompanyStatus);
-      const overallStatus = calculateOverallStatus(part, mngResp, companySurveyStatus);
-
-      return {
-        id: itemId,
-        economicGroup: comp.economicGroupName || 'Grupo Corporativo',
-        companyId: comp.id,
-        companyName: comp.name,
-        surveyName: `Pesquisa Psicossocial - ${comp.name}`,
-        employeeResponses: empResp,
-        managerResponses: mngResp,
-        totalEmployees,
-        participationPercentage: part,
-        companySurveyStatus,
-        overallStatus,
-        lastSyncedAt: new Date(),
-        folderPath: ['Drive Raiz', comp.economicGroupName || 'Corporativo', comp.name]
-      };
-    });
-  }, []);
-
-  // Executa sincronização com a Edge Function
-  const fetchSyncData = useCallback(async (customFolderId?: string) => {
+  // Sincronização remota via Supabase Edge Function com suporte SWR
+  const fetchSyncData = useCallback(async (customSheetId?: string, forceRefresh = false) => {
     setLoading(true);
     setError(null);
-    const targetFolder = customFolderId || rootFolderId;
+    const targetSheet = customSheetId || rootFolderId;
 
     try {
-      if (targetFolder) {
-        const result = await googleWorkspaceBackendService.syncGoogleWorkspace(targetFolder);
-        setRawSyncResult(result);
-        const mappedItems = parseTreeToSurveyItems(result.tree, companies);
-        
-        if (mappedItems.length > 0) {
-          setSurveyItems(mappedItems);
-        } else {
-          setSurveyItems(generateInitialDataFromCompanies(companies));
-        }
-        setLastSyncTime(new Date(result.scannedAt));
-      } else {
-        setSurveyItems(generateInitialDataFromCompanies(companies));
+      const result = await googleWorkspaceBackendService.syncMasterSheet(targetSheet, forceRefresh);
+      setRawSyncResult(result);
+      const mappedItems = parseMasterSheetToSurveyItems(result, companies);
+      setSurveyItems(mappedItems);
+      setLastSyncTime(new Date(result.scannedAt || Date.now()));
+    } catch (err: any) {
+      console.warn('Erro na sincronização da Planilha Mestra:', err.message);
+      setError(err.message || 'Falha ao sincronizar com a Planilha Mestra.');
+      // Tentativa de recuperação automática usando ID Oficial
+      try {
+        const fallbackResult = await googleWorkspaceBackendService.syncMasterSheet('1oeP_TJk4es0gbeBAPnebYkGecVAjzFG5EkC1dSUSde0', true);
+        setRawSyncResult(fallbackResult);
+        const fallbackItems = parseMasterSheetToSurveyItems(fallbackResult, companies);
+        setSurveyItems(fallbackItems);
+        setLastSyncTime(new Date(fallbackResult.scannedAt || Date.now()));
+        setError(null);
+      } catch (fallbackErr: any) {
+        setSurveyItems([]);
         setLastSyncTime(new Date());
       }
-    } catch (err: any) {
-      console.warn('Uso do fallback do cadastro oficial ConexaRP:', err.message);
-      setError(err.message || 'Falha ao conectar à Edge Function.');
-      setSurveyItems(generateInitialDataFromCompanies(companies));
-      setLastSyncTime(new Date());
     } finally {
       setLoading(false);
     }
-  }, [rootFolderId, companies, parseTreeToSurveyItems, generateInitialDataFromCompanies]);
+  }, [rootFolderId, companies, parseMasterSheetToSurveyItems]);
 
   useEffect(() => {
     fetchSyncData();
   }, [fetchSyncData]);
 
-  // Atualiza manualmente o status da Pesquisa da Empresa
+  const refreshSync = () => {
+    fetchSyncData(rootFolderId, true);
+  };
+
   const updateCompanySurveyStatus = (surveyId: string, status: CompanySurveyStatus) => {
     try {
-      localStorage.setItem(`${COMPANY_STATUS_STORAGE_KEY_PREFIX}${surveyId}`, status);
+      localStorage.setItem(`conexarp_company_survey_status_${surveyId}`, status);
     } catch {}
 
     setSurveyItems(prev => prev.map(item => {
@@ -250,16 +263,63 @@ export function useGoogleWorkspaceMonitoring(companies: Company[] = []) {
     }));
   };
 
-  const handleSaveRootFolderId = (folderId: string) => {
-    googleWorkspaceBackendService.setRootFolderId(folderId);
-    setRootFolderId(folderId);
-    fetchSyncData(folderId);
+  const linkCompanyManual = useCallback((surveyItemId: string, companyId: string) => {
+    try {
+      localStorage.setItem(`conexarp_company_manual_link_${surveyItemId}`, companyId);
+    } catch {}
+
+    const targetCompany = companies.find(c => c.id === companyId);
+
+    setSurveyItems(prev => prev.map(item => {
+      if (item.id === surveyItemId) {
+        return {
+          ...item,
+          companyId,
+          linkedCompanyName: targetCompany?.name,
+          economicGroup: targetCompany?.economicGroupName || item.economicGroup,
+          isLinked: true
+        };
+      }
+      return item;
+    }));
+  }, [companies]);
+
+  const updateTotalEmployees = useCallback(async (surveyItemId: string, companyName: string, newTotal: number) => {
+    if (newTotal < 0) return;
+
+    // Atualização otimista local (0ms lag na UI)
+    setSurveyItems(prev => prev.map(item => {
+      if (item.id === surveyItemId || item.companyName.toUpperCase().trim() === companyName.toUpperCase().trim()) {
+        const participationPercentage = newTotal > 0 ? Number(((item.employeeResponses / newTotal) * 100).toFixed(1)) : 0;
+        const newOverall = calculateOverallStatus(participationPercentage, item.managerResponses, item.companySurveyStatus);
+        return {
+          ...item,
+          totalEmployees: newTotal,
+          participationPercentage,
+          overallStatus: newOverall
+        };
+      }
+      return item;
+    }));
+
+    // Envia atualização para a Coluna D no Google Sheets
+    try {
+      await googleWorkspaceBackendService.updateTotalEmployees(companyName, newTotal);
+    } catch (err) {
+      console.error('Falha ao atualizar Coluna D no Google Sheets:', err);
+    }
+  }, []);
+
+  const handleSaveRootFolderId = (sheetId: string) => {
+    googleWorkspaceBackendService.setMasterSheetId(sheetId);
+    setRootFolderId(sheetId);
+    fetchSyncData(sheetId, true);
   };
 
   // Filtragem dos dados
   const filteredItems = useMemo(() => {
     return surveyItems.filter(item => {
-      if (filters.companyId !== 'ALL' && item.companyId !== filters.companyId) {
+      if (filters.companyId !== 'ALL' && item.companyId !== filters.companyId && item.companyName !== filters.companyId) {
         return false;
       }
       if (filters.economicGroup !== 'ALL' && item.economicGroup !== filters.economicGroup) {
@@ -272,8 +332,9 @@ export function useGoogleWorkspaceMonitoring(companies: Company[] = []) {
         const query = filters.searchQuery.toLowerCase();
         const matchName = item.surveyName.toLowerCase().includes(query);
         const matchCompany = item.companyName.toLowerCase().includes(query);
+        const matchLinked = (item.linkedCompanyName || '').toLowerCase().includes(query);
         const matchGroup = item.economicGroup.toLowerCase().includes(query);
-        if (!matchName && !matchCompany && !matchGroup) {
+        if (!matchName && !matchCompany && !matchLinked && !matchGroup) {
           return false;
         }
       }
@@ -306,7 +367,7 @@ export function useGoogleWorkspaceMonitoring(companies: Company[] = []) {
 
   const uniqueCompanies = useMemo(() => {
     const map = new Map<string, string>();
-    surveyItems.forEach(i => map.set(i.companyId, i.companyName));
+    surveyItems.forEach(i => map.set(i.companyId, i.linkedCompanyName || i.companyName));
     return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
   }, [surveyItems]);
 
@@ -328,8 +389,10 @@ export function useGoogleWorkspaceMonitoring(companies: Company[] = []) {
     setFilters,
     uniqueCompanies,
     uniqueEconomicGroups,
-    refreshSync: fetchSyncData,
+    refreshSync,
     handleSaveRootFolderId,
-    updateCompanySurveyStatus
+    updateCompanySurveyStatus,
+    updateTotalEmployees,
+    linkCompanyManual
   };
 }

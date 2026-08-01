@@ -9,7 +9,7 @@ import {
 import { ICollectionProvider, CollectionMetrics } from './providers/ICollectionProvider';
 import { GoogleFormsProvider } from './providers/GoogleFormsProvider';
 import { googleWorkspaceCollectionProvider } from './providers/GoogleWorkspaceCollectionProvider';
-import { workflowEngine, evaluateAutoState } from './WorkflowEngine';
+import { workflowEngine, evaluateAutoState, canTransition } from './WorkflowEngine';
 import { tabulationService } from './TabulationService';
 import { assessmentIntegrationService } from './AssessmentIntegrationService';
 import { notificationService } from './NotificationService';

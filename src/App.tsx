@@ -305,7 +305,20 @@ export default function App() {
           <div style={{ display: activeView === 'surveys' ? 'block' : 'none' }}>
             <SurveyManagerView
               companies={companies}
-              onNavigateToAssessments={() => setActiveView('assessments')}
+              assessments={assessments}
+              onCreateCompany={handleCreateCompany}
+              onNavigateToAssessments={(companyId) => {
+                if (companyId) {
+                  setSelectedCompanyId(companyId);
+                }
+                setActiveView('assessments');
+              }}
+              onNavigateToInventory={(companyId) => {
+                if (companyId) {
+                  setSelectedCompanyId(companyId);
+                }
+                setActiveView('inventory');
+              }}
             />
           </div>
 
@@ -319,7 +332,13 @@ export default function App() {
             />
           )}
 
-          {activeView === 'inventory' && <InventoryView assessments={assessments} companies={companies} />}
+          {activeView === 'inventory' && (
+            <InventoryView 
+              assessments={assessments} 
+              companies={companies} 
+              selectedCompanyId={selectedCompanyId} 
+            />
+          )}
           {activeView === 'parameters' && <SettingsView />}
 
           {activeView === 'assessments' && (

@@ -351,10 +351,31 @@ export class GoogleSurveyImportService {
   }
 
   /**
-   * Tabula dados diretamente de um item de monitoramento do Google Workspace
+   * Tabula dados diretamente de um item de monitoramento da Planilha Mestra
    */
   public tabulateMonitoringSurvey(item: MonitoringSurveyItem): ConexaTabulationOutput {
-    // Simula linhas brancas geradas pelas respostas reais dos formulários
+    // Se o item contém as linhas reais extraídas da Planilha Mestra, utiliza os dados reais
+    if (item.collabRows && item.collabRows.length > 0) {
+      const realEmployeeRows = item.collabRows.map(r => ({
+        'Carimbo de data/hora': r.carimbo,
+        'Unidade': r.unidade || 'MATRIZ',
+        'Setor': r.setor || 'OPERACIONAL',
+        'Cargo': r.cargo,
+        ...r.respostas
+      }));
+
+      const realManagerRows = (item.managerRows || []).map(r => ({
+        'Carimbo de data/hora': r.carimbo,
+        'Unidade': r.unidade || 'MATRIZ',
+        'Setor': r.setor || 'GERENCIAL',
+        'Cargo': r.cargo,
+        ...r.respostas
+      }));
+
+      return this.processRawDataToTabulation(realEmployeeRows, realManagerRows);
+    }
+
+    // Fallback gracioso para visualização quando em ambiente de demonstração
     const mockEmployeeRows = Array.from({ length: item.employeeResponses || 10 }, (_, i) => ({
       'Carimbo de data/hora': new Date().toISOString(),
       'Unidade': 'MATRIZ',
@@ -385,6 +406,7 @@ export class GoogleSurveyImportService {
 
     return this.processRawDataToTabulation(mockEmployeeRows, mockManagerRows);
   }
+
 }
 
 export const googleSurveyImportService = new GoogleSurveyImportService();

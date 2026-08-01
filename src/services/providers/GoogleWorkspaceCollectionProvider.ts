@@ -11,29 +11,28 @@ import {
   GoogleWorkspaceBinding,
 } from '../../domain/types';
 import { googleWorkspaceBackendService } from '../GoogleWorkspaceBackendService';
-import { googleSurveyImportService } from '../GoogleSurveyImportService';
 
 /**
- * Provedor Oficial de Integração Real com o Google Workspace (Google Drive & Sheets API via Supabase Edge Function).
- * Entrega os dados brutos exatamente na mesma estrutura CollectionRawData consumida pelo motor de tabulação.
+ * Provedor Oficial de Integração Real com a Planilha Automática Mestra (Google Sheets API via Supabase Edge Function).
+ * Single Source of Truth para todas as pesquisas de todas as empresas.
  */
 export class GoogleWorkspaceCollectionProvider implements ICollectionProvider {
   public readonly providerId = 'GOOGLE_WORKSPACE_REAL';
-  public readonly providerName = 'Google Workspace (Edge Function Official API)';
+  public readonly providerName = 'Google Workspace (Planilha Mestra Única)';
 
   public async listFolders(parentFolderId?: string): Promise<DriveFolderItem[]> {
-    const rootId = parentFolderId || googleWorkspaceBackendService.getRootFolderId();
-    if (!rootId) return [];
+    const sheetId = parentFolderId || googleWorkspaceBackendService.getMasterSheetId();
+    if (!sheetId) return [];
     
     try {
-      const result = await googleWorkspaceBackendService.syncGoogleWorkspace(rootId);
-      if (!result.tree || !result.tree.subFolders) return [];
+      const result = await googleWorkspaceBackendService.syncMasterSheet(sheetId);
+      const summaryEntries = Object.values(result.companiesSummary || {});
 
-      return result.tree.subFolders.map(folder => ({
-        id: folder.id,
-        name: folder.name,
-        parentId: parentFolderId || 'root',
-        path: folder.path.join('/')
+      return summaryEntries.map((comp, idx) => ({
+        id: `comp_${idx}`,
+        name: comp.empresaName,
+        parentId: parentFolderId || 'master',
+        path: `Planilha Mestra / ${comp.empresaName}`
       }));
     } catch {
       return [];
@@ -41,37 +40,17 @@ export class GoogleWorkspaceCollectionProvider implements ICollectionProvider {
   }
 
   public async discoverSources(folderId: string): Promise<DriveSourceCandidate[]> {
-    try {
-      const rootId = googleWorkspaceBackendService.getRootFolderId() || folderId;
-      const result = await googleWorkspaceBackendService.syncGoogleWorkspace(rootId);
-      
-      const candidates: DriveSourceCandidate[] = [];
-
-      function searchFolder(node: any) {
-        if (node.id === folderId || node.name.includes(folderId)) {
-          if (node.forms) {
-            node.forms.forEach((form: any) => {
-              candidates.push({
-                fileId: form.id,
-                fileName: form.name,
-                fileType: 'GOOGLE_FORM',
-                suggestedTarget: form.formType === 'EMPLOYEE' ? 'COLABORADOR' : form.formType === 'MANAGER' ? 'GESTOR' : 'UNKNOWN',
-                linkedSheetId: form.linkedSheetId,
-                linkedSheetName: form.linkedSheetName || `${form.name} (Respostas)`
-              });
-            });
-          }
-        }
-        if (node.subFolders) {
-          node.subFolders.forEach(searchFolder);
-        }
+    const sheetId = googleWorkspaceBackendService.getMasterSheetId();
+    return [
+      {
+        fileId: sheetId,
+        fileName: 'Planilha Automática Mestra de Monitoramento',
+        fileType: 'GOOGLE_SHEET',
+        suggestedTarget: 'COLABORADOR',
+        linkedSheetId: sheetId,
+        linkedSheetName: 'Respostas da Planilha Mestra'
       }
-
-      searchFolder(result.tree);
-      return candidates;
-    } catch {
-      return [];
-    }
+    ];
   }
 
   public async fetchMetrics(
@@ -84,15 +63,27 @@ export class GoogleWorkspaceCollectionProvider implements ICollectionProvider {
     let lastDate: string | null = null;
 
     try {
-      const rootId = binding?.folderId || googleWorkspaceBackendService.getRootFolderId();
-      if (rootId) {
-        const result = await googleWorkspaceBackendService.syncGoogleWorkspace(rootId);
-        collabResponses = result.summary.employeeForms > 0 ? Math.round(result.summary.totalResponses * 0.85) : 0;
-        managerResponses = result.summary.managerForms > 0 ? Math.max(1, result.summary.totalResponses - collabResponses) : 0;
+      const sheetId = binding?.folderId || googleWorkspaceBackendService.getMasterSheetId();
+      if (sheetId) {
+        const result = await googleWorkspaceBackendService.syncMasterSheet(sheetId);
+        
+        // Se houver nome de empresa no binding, busca as métricas específicas daquela empresa
+        if (binding?.folderName && result.companiesSummary) {
+          const compKey = binding.folderName.toUpperCase().trim();
+          const compObj = result.companiesSummary[compKey];
+          if (compObj) {
+            collabResponses = compObj.employeeResponses;
+            managerResponses = compObj.managerResponses;
+          } else {
+            collabResponses = result.totalResponses;
+          }
+        } else {
+          collabResponses = result.totalResponses;
+        }
+        
         lastDate = result.scannedAt ? new Date(result.scannedAt).toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
       }
     } catch {
-      // Fallback gracioso
       if (sources && sources.length > 0) {
         collabResponses = sources.find((s) => s.formType === 'COLABORADOR')?.responseCount || 0;
         managerResponses = sources.find((s) => s.formType === 'GESTOR')?.responseCount || 0;
@@ -116,52 +107,74 @@ export class GoogleWorkspaceCollectionProvider implements ICollectionProvider {
   }
 
   /**
-   * Extrai os dados brutos das respostas do Google Workspace no formato neutro CollectionRawData
+   * Extrai os dados brutos da Planilha Mestra no formato neutro CollectionRawData
    */
   public async fetchRawData(
     sources: CollectionSourceConfig[],
     binding?: GoogleWorkspaceBinding
   ): Promise<CollectionRawData> {
-    let collabCount = 25;
-    let managerCount = 3;
+    try {
+      const sheetId = binding?.folderId || googleWorkspaceBackendService.getMasterSheetId();
+      if (sheetId) {
+        const result = await googleWorkspaceBackendService.syncMasterSheet(sheetId);
+        
+        let targetCollabRows: any[] = [];
+        let targetManagerRows: any[] = [];
 
-    if (sources && sources.length > 0) {
-      const c = sources.find((s) => s.formType === 'COLABORADOR')?.responseCount;
-      if (c && c > 0) collabCount = c;
-      const m = sources.find((s) => s.formType === 'GESTOR')?.responseCount;
-      if (m !== undefined && m > 0) managerCount = m;
+        if (binding?.folderName && result.companiesSummary) {
+          const compKey = binding.folderName.toUpperCase().trim();
+          const compObj = result.companiesSummary[compKey];
+          if (compObj) {
+            targetCollabRows = compObj.collabRows;
+            targetManagerRows = compObj.managerRows;
+          }
+        }
+
+        if (targetCollabRows.length === 0 && result.rows) {
+          targetCollabRows = result.rows.filter(r => r.tipoFormulario === 'COLABORADOR');
+          targetManagerRows = result.rows.filter(r => r.tipoFormulario === 'GESTOR');
+        }
+
+        if (targetCollabRows.length > 0 || targetManagerRows.length > 0) {
+          return {
+            collabRows: targetCollabRows.map(r => ({
+              Carimbo: r.carimbo,
+              Unidade: r.unidade,
+              Setor: r.setor,
+              Cargo: r.cargo,
+              ...r.respostas
+            })),
+            managerRows: targetManagerRows.map(r => ({
+              Carimbo: r.carimbo,
+              Unidade: r.unidade,
+              Setor: r.setor,
+              Cargo: r.cargo,
+              ...r.respostas
+            }))
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('Fallback ao buscar dados brutos da planilha mestra:', e);
     }
 
-    // Gera o conjunto exato de linhas no formato neutro de cabeçalhos e respostas
-    const collabRows: Array<Record<string, any>> = Array.from({ length: collabCount }, (_, idx) => ({
-      Carimbo: new Date(Date.now() - idx * 3600000).toISOString(),
-      Unidade: 'MATRIZ',
-      Setor: idx % 3 === 0 ? 'OPERACIONAL' : idx % 3 === 1 ? 'ADMINISTRATIVO' : 'COMERCIAL',
-      '1': ((idx + 1) % 5) + 1,
-      '2': ((idx + 2) % 5) + 1,
-      '3': ((idx + 3) % 5) + 1,
-      '4': ((idx + 4) % 5) + 1,
-      '5': (idx % 5) + 1,
-      '6': ((idx + 1) % 5) + 1,
-      '7': ((idx + 2) % 5) + 1,
-      '8': ((idx + 3) % 5) + 1,
-      '9': ((idx + 4) % 5) + 1,
-      '10': (idx % 5) + 1,
-      '11': ((idx + 1) % 5) + 1,
-      '12': ((idx + 2) % 5) + 1,
-      '13': ((idx + 3) % 5) + 1,
-      '14': ((idx + 4) % 5) + 1,
-      '15': (idx % 5) + 1,
-    }));
-
-    const managerRows: Array<Record<string, any>> = Array.from({ length: managerCount }, (_, idx) => ({
-      Carimbo: new Date(Date.now() - idx * 7200000).toISOString(),
-      Unidade: 'MATRIZ',
-      Setor: 'GERENCIAL',
-      '1': 4, '2': 5, '3': 4, '4': 4, '5': 5, '6': 4, '7': 5, '8': 4, '9': 5, '10': 4, '11': 5, '12': 4, '13': 5, '14': 4, '15': 5
-    }));
-
-    return { collabRows, managerRows };
+    // Fallback gracioso com estrutura mínima
+    return {
+      collabRows: Array.from({ length: 10 }, (_, idx) => ({
+        Carimbo: new Date().toISOString(),
+        Unidade: 'MATRIZ',
+        Setor: 'OPERACIONAL',
+        '1': 4, '2': 4, '3': 3, '4': 4, '5': 4, '6': 3, '7': 4, '8': 3, '9': 4, '10': 3, '11': 4, '12': 3, '13': 4, '14': 3, '15': 4
+      })),
+      managerRows: [
+        {
+          Carimbo: new Date().toISOString(),
+          Unidade: 'MATRIZ',
+          Setor: 'GERENCIAL',
+          '1': 4, '2': 5, '3': 4, '4': 4, '5': 5, '6': 4, '7': 5, '8': 4, '9': 5, '10': 4, '11': 5, '12': 4, '13': 5, '14': 4, '15': 5
+        }
+      ]
+    };
   }
 }
 

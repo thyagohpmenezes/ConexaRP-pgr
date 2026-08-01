@@ -1,21 +1,17 @@
 // src/components/GoogleWorkspaceAdminSection.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { googleWorkspaceBackendService } from '../services/GoogleWorkspaceBackendService';
 import { 
   ShieldCheck, 
   RefreshCw, 
   CheckCircle2, 
   AlertTriangle, 
-  FolderGit2, 
+  FileSpreadsheet, 
   Key, 
   Mail, 
   Clock, 
   Zap, 
   Server, 
-  FileSpreadsheet, 
-  FileCheck, 
-  Building2, 
-  Database,
   Lock,
   Cpu
 } from 'lucide-react';
@@ -30,17 +26,16 @@ export interface DiagnosticReport {
   googleSheetsOk: boolean;
   summary?: {
     companiesFound: number;
-    formsFound: number;
-    sheetsFound: number;
+    totalResponses: number;
+    totalRowsRead: number;
   };
   errorDetails?: string;
 }
 
 const STORAGE_SA_EMAIL_KEY = 'conexarp_google_sa_email';
-const STORAGE_GCP_PROJECT_KEY = 'conexarp_google_gcp_project';
 
 export const GoogleWorkspaceAdminSection: React.FC = () => {
-  const [rootFolderId, setRootFolderId] = useState<string>(() => googleWorkspaceBackendService.getRootFolderId());
+  const [masterSheetId, setMasterSheetId] = useState<string>(() => googleWorkspaceBackendService.getMasterSheetId());
   const [serviceAccountEmail, setServiceAccountEmail] = useState<string>(() => localStorage.getItem(STORAGE_SA_EMAIL_KEY) || 'conexarp-sync@conexarp-gcp-prod.iam.gserviceaccount.com');
   const [gcpProjectId] = useState<string>('conexarp-production-gcp');
   
@@ -52,7 +47,7 @@ export const GoogleWorkspaceAdminSection: React.FC = () => {
 
   // Salva os campos editados nas configurações
   const handleSaveSettings = () => {
-    googleWorkspaceBackendService.setRootFolderId(rootFolderId);
+    googleWorkspaceBackendService.setMasterSheetId(masterSheetId);
     localStorage.setItem(STORAGE_SA_EMAIL_KEY, serviceAccountEmail);
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 2500);
@@ -65,12 +60,12 @@ export const GoogleWorkspaceAdminSection: React.FC = () => {
     const startTime = performance.now();
 
     try {
-      if (!rootFolderId.trim()) {
-        throw new Error('ID da Pasta Raiz do Google Drive é obrigatório.');
+      if (!masterSheetId.trim()) {
+        throw new Error('ID da Planilha Mestra (MASTER_SHEET_ID) é obrigatório.');
       }
 
-      // Executa chamada de diagnóstico via Edge Function
-      const result = await googleWorkspaceBackendService.syncGoogleWorkspace(rootFolderId);
+      // Executa chamada de diagnóstico ultrarrápida via Edge Function (quickTest: true)
+      const result = await googleWorkspaceBackendService.syncMasterSheet(masterSheetId, true, true);
       const endTime = performance.now();
       const executionTimeMs = Math.round(endTime - startTime);
 
@@ -83,9 +78,9 @@ export const GoogleWorkspaceAdminSection: React.FC = () => {
         googleDriveOk: true,
         googleSheetsOk: true,
         summary: {
-          companiesFound: result.summary?.totalFolders || 0,
-          formsFound: result.summary?.totalForms || 0,
-          sheetsFound: (result.summary?.totalForms || 0) * 2
+          companiesFound: result.companiesCount || Object.keys(result.companiesSummary || {}).length,
+          totalResponses: result.totalResponses || 0,
+          totalRowsRead: result.totalRowsRead || 0
         }
       });
       setConnectionStatus('CONNECTED');
@@ -109,13 +104,13 @@ export const GoogleWorkspaceAdminSection: React.FC = () => {
     }
   };
 
-  // Botão 2: "Executar Varredura"
+  // Botão 2: "Executar Varredura / Leitura Única"
   const handleRunScan = async () => {
     setScanning(true);
     const startTime = performance.now();
 
     try {
-      const result = await googleWorkspaceBackendService.syncGoogleWorkspace(rootFolderId);
+      const result = await googleWorkspaceBackendService.syncMasterSheet(masterSheetId, true);
       const endTime = performance.now();
       const executionTimeMs = Math.round(endTime - startTime);
 
@@ -128,14 +123,14 @@ export const GoogleWorkspaceAdminSection: React.FC = () => {
         googleDriveOk: true,
         googleSheetsOk: true,
         summary: {
-          companiesFound: result.summary?.totalFolders || 0,
-          formsFound: result.summary?.totalForms || 0,
-          sheetsFound: (result.summary?.totalForms || 0) * 2
+          companiesFound: result.companiesCount || Object.keys(result.companiesSummary || {}).length,
+          totalResponses: result.totalResponses || 0,
+          totalRowsRead: result.totalRowsRead || 0
         }
       });
       setConnectionStatus('CONNECTED');
     } catch (err: any) {
-      alert(`Erro na varredura da Edge Function: ${err.message}`);
+      alert(`Erro na leitura da Planilha Mestra: ${err.message}`);
     } finally {
       setScanning(false);
     }
@@ -153,7 +148,7 @@ export const GoogleWorkspaceAdminSection: React.FC = () => {
             {connectionStatus === 'CONNECTED' ? (
               <span className="px-2.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded text-[9px] font-black uppercase tracking-widest flex items-center gap-1">
                 <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                🟢 Conexão Ativa (Produção)
+                🟢 Fonte Única de Verdade Conectada
               </span>
             ) : (
               <span className="px-2.5 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded text-[9px] font-black uppercase tracking-widest flex items-center gap-1">
@@ -163,10 +158,10 @@ export const GoogleWorkspaceAdminSection: React.FC = () => {
             )}
           </div>
           <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight italic">
-            Integração Google Workspace (GCP Service Account)
+            Planilha Automática Mestra de Monitoramento (Single Source of Truth)
           </h3>
           <p className="text-xs text-slate-500 font-medium">
-            Gerenciamento corporativo da conexão backend via Supabase Edge Functions.
+            Gerenciamento exclusivo do MASTER_SHEET_ID e permissões da Service Account do Google.
           </p>
         </div>
 
@@ -182,21 +177,21 @@ export const GoogleWorkspaceAdminSection: React.FC = () => {
 
       {/* Formulário de Campos Obrigatórios */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Campo 1: ID da Pasta Raiz */}
+        {/* Campo 1: ID da Planilha Mestra */}
         <div className="space-y-2">
           <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
-            <FolderGit2 size={14} className="text-blue-600" />
-            ID da Pasta Raiz (Google Drive)
+            <FileSpreadsheet size={14} className="text-blue-600" />
+            ID da Planilha Mestra (MASTER_SHEET_ID)
           </label>
           <input
             type="text"
-            value={rootFolderId}
-            onChange={(e) => setRootFolderId(e.target.value)}
+            value={masterSheetId}
+            onChange={(e) => setMasterSheetId(e.target.value)}
             placeholder="Ex: 1A2b3C4d5E6f7G8h9I0j"
             className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none"
           />
           <p className="text-[9px] text-slate-400 font-medium">
-            URL do Drive: `drive.google.com/drive/folders/ID`
+            URL do Google Sheets: `docs.google.com/spreadsheets/d/ID/edit`
           </p>
         </div>
 
@@ -214,7 +209,7 @@ export const GoogleWorkspaceAdminSection: React.FC = () => {
             className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none"
           />
           <p className="text-[9px] text-slate-400 font-medium">
-            Compartilhe a pasta raiz no Drive concedendo permissão de Leitor para este e-mail.
+            Compartilhe a Planilha Mestra concedendo permissão de Leitor para este e-mail.
           </p>
         </div>
 
@@ -245,7 +240,7 @@ export const GoogleWorkspaceAdminSection: React.FC = () => {
         </div>
       </div>
 
-      {/* Botões de Ação Principal: Testar Conexão e Executar Varredura */}
+      {/* Botões de Ação Principal: Testar Conexão e Leitura Única */}
       <div className="flex flex-col sm:flex-row items-center gap-4 pt-4 border-t border-slate-100">
         <button
           disabled={testing || scanning}
@@ -253,7 +248,7 @@ export const GoogleWorkspaceAdminSection: React.FC = () => {
           className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase tracking-widest px-6 py-3.5 rounded-2xl shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2.5 transition-all active:scale-95 disabled:opacity-50"
         >
           <Zap size={16} className={testing ? 'animate-spin' : ''} />
-          {testing ? 'Validando Autenticação...' : 'Testar Conexão'}
+          {testing ? 'Validando Planilha Mestra...' : 'Testar Conexão'}
         </button>
 
         <button
@@ -262,15 +257,15 @@ export const GoogleWorkspaceAdminSection: React.FC = () => {
           className="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 text-white font-black text-xs uppercase tracking-widest px-6 py-3.5 rounded-2xl shadow-lg shadow-slate-900/20 flex items-center justify-center gap-2.5 transition-all active:scale-95 disabled:opacity-50"
         >
           <RefreshCw size={16} className={scanning ? 'animate-spin' : ''} />
-          {scanning ? 'Executando Varredura Real...' : 'Executar Varredura'}
+          {scanning ? 'Lendo Planilha Mestra...' : 'Sincronizar Planilha Mestra'}
         </button>
       </div>
 
-      {/* Painel de Diagnóstico da Integração (Sprint 6 Requisito 6) */}
+      {/* Painel de Diagnóstico da Integração */}
       <div className="bg-slate-50 border border-slate-200 rounded-3xl p-6 space-y-6">
         <div className="flex items-center justify-between">
           <h4 className="text-sm font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
-            <Cpu size={18} className="text-blue-600" /> Diagnóstico e Homologação de Produção
+            <Cpu size={18} className="text-blue-600" /> Diagnóstico da Planilha Mestra de Monitoramento
           </h4>
           {diagnosticReport && (
             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
@@ -279,13 +274,13 @@ export const GoogleWorkspaceAdminSection: React.FC = () => {
           )}
         </div>
 
-        {/* 7 Checkmarks de Validação do Diagnóstico */}
+        {/* Checkmarks de Validação do Diagnóstico */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           <div className={`p-4 rounded-2xl border flex items-center gap-3 ${diagnosticReport?.apiAccessible ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-white border-slate-200 text-slate-500'}`}>
             <CheckCircle2 size={18} className={diagnosticReport?.apiAccessible ? 'text-emerald-600' : 'text-slate-300'} />
             <div>
-              <span className="text-[9px] font-black uppercase tracking-widest block">APIs Acessíveis</span>
-              <span className="text-xs font-bold">{diagnosticReport?.apiAccessible ? 'Drive v3 & Sheets v4 OK' : 'Aguardando teste'}</span>
+              <span className="text-[9px] font-black uppercase tracking-widest block">API Google Sheets</span>
+              <span className="text-xs font-bold">{diagnosticReport?.apiAccessible ? 'Sheets v4 API OK' : 'Aguardando teste'}</span>
             </div>
           </div>
 
@@ -300,68 +295,44 @@ export const GoogleWorkspaceAdminSection: React.FC = () => {
           <div className={`p-4 rounded-2xl border flex items-center gap-3 ${diagnosticReport?.rootFolderFound ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-white border-slate-200 text-slate-500'}`}>
             <CheckCircle2 size={18} className={diagnosticReport?.rootFolderFound ? 'text-emerald-600' : 'text-slate-300'} />
             <div>
-              <span className="text-[9px] font-black uppercase tracking-widest block">Pasta Raiz</span>
-              <span className="text-xs font-bold">{diagnosticReport?.rootFolderFound ? 'Pasta Encontrada' : 'Aguardando teste'}</span>
-            </div>
-          </div>
-
-          <div className={`p-4 rounded-2xl border flex items-center gap-3 ${diagnosticReport?.googleDriveOk ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-white border-slate-200 text-slate-500'}`}>
-            <CheckCircle2 size={18} className={diagnosticReport?.googleDriveOk ? 'text-emerald-600' : 'text-slate-300'} />
-            <div>
-              <span className="text-[9px] font-black uppercase tracking-widest block">Google Drive</span>
-              <span className="text-xs font-bold">{diagnosticReport?.googleDriveOk ? 'Status OK' : 'Aguardando teste'}</span>
+              <span className="text-[9px] font-black uppercase tracking-widest block">Planilha Mestra</span>
+              <span className="text-xs font-bold">{diagnosticReport?.rootFolderFound ? 'Aba Mestra Localizada' : 'Aguardando teste'}</span>
             </div>
           </div>
 
           <div className={`p-4 rounded-2xl border flex items-center gap-3 ${diagnosticReport?.googleSheetsOk ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-white border-slate-200 text-slate-500'}`}>
             <CheckCircle2 size={18} className={diagnosticReport?.googleSheetsOk ? 'text-emerald-600' : 'text-slate-300'} />
             <div>
-              <span className="text-[9px] font-black uppercase tracking-widest block">Google Sheets</span>
-              <span className="text-xs font-bold">{diagnosticReport?.googleSheetsOk ? 'Leitura OK' : 'Aguardando teste'}</span>
-            </div>
-          </div>
-
-          <div className="p-4 rounded-2xl border bg-white border-slate-200 text-slate-800 flex items-center gap-3">
-            <Clock size={18} className="text-blue-600" />
-            <div>
-              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Última Sincronização</span>
-              <span className="text-xs font-bold">{diagnosticReport?.timestamp || 'Sem registro'}</span>
-            </div>
-          </div>
-
-          <div className="p-4 rounded-2xl border bg-white border-slate-200 text-slate-800 flex items-center gap-3">
-            <Zap size={18} className="text-amber-500" />
-            <div>
-              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Tempo de Execução</span>
-              <span className="text-xs font-bold">{diagnosticReport?.executionTimeMs ? `${(diagnosticReport.executionTimeMs / 1000).toFixed(2)}s` : '0s'}</span>
+              <span className="text-[9px] font-black uppercase tracking-widest block">Leitura Única</span>
+              <span className="text-xs font-bold">{diagnosticReport?.googleSheetsOk ? '1 Request OK' : 'Aguardando teste'}</span>
             </div>
           </div>
         </div>
 
-        {/* Resumo da Varredura Real */}
+        {/* Resumo da Leitura Mestra */}
         {diagnosticReport?.summary && (
           <div className="bg-white p-5 rounded-2xl border border-slate-200 grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
             <div>
-              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Empresas Descobertas</span>
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Empresas Consolidadas</span>
               <p className="text-xl font-black text-blue-700">{diagnosticReport.summary.companiesFound}</p>
             </div>
             <div>
-              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Formulários Descobertos</span>
-              <p className="text-xl font-black text-amber-700">{diagnosticReport.summary.formsFound}</p>
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Total de Respostas</span>
+              <p className="text-xl font-black text-amber-700">{diagnosticReport.summary.totalResponses}</p>
             </div>
             <div>
-              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Planilhas Descobertas</span>
-              <p className="text-xl font-black text-emerald-700">{diagnosticReport.summary.sheetsFound}</p>
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Linhas Processadas</span>
+              <p className="text-xl font-black text-emerald-700">{diagnosticReport.summary.totalRowsRead}</p>
             </div>
           </div>
         )}
 
-        {/* Alerta de erro no Diagnóstico (caso haja falha) */}
+        {/* Alerta de erro no Diagnóstico */}
         {diagnosticReport?.errorDetails && (
           <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl text-rose-800 text-xs font-bold flex items-center gap-3">
             <AlertTriangle size={18} className="text-rose-600 shrink-0" />
             <div>
-              <span className="font-black uppercase block">Falha no Teste de Conexão:</span>
+              <span className="font-black uppercase block">Falha ao Conectar com a Planilha Mestra:</span>
               <span>{diagnosticReport.errorDetails}</span>
             </div>
           </div>

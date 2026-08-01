@@ -26,16 +26,34 @@ import {
   X,
   UserCheck,
   FileCheck2,
+  FileCheck,
+  Check,
   HelpCircle,
   PlayCircle,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Pencil,
+  PlusCircle,
+  ArrowRight,
+  ShieldCheck,
+  Link2,
+  FileText
 } from 'lucide-react';
 
 interface Props {
   companies?: Company[];
+  assessments?: any[];
+  onCreateCompany?: (newCompany: Omit<Company, 'id'>) => void;
+  onNavigateToAssessments?: (companyId?: string) => void;
+  onNavigateToInventory?: (companyId?: string) => void;
 }
 
-export const WorkspaceMonitoringDashboard: React.FC<Props> = ({ companies = [] }) => {
+export const WorkspaceMonitoringDashboard: React.FC<Props> = ({ 
+  companies = [],
+  assessments = [],
+  onCreateCompany,
+  onNavigateToAssessments,
+  onNavigateToInventory
+}) => {
   const {
     loading,
     error,
@@ -49,110 +67,190 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({ companies = [] }
     uniqueEconomicGroups,
     refreshSync,
     handleSaveRootFolderId,
-    updateCompanySurveyStatus
+    updateCompanySurveyStatus,
+    updateTotalEmployees,
+    linkCompanyManual
   } = useGoogleWorkspaceMonitoring(companies);
 
   const [showConfigModal, setShowConfigModal] = useState<boolean>(false);
   const [inputFolderId, setInputFolderId] = useState<string>(rootFolderId);
   const [validationTargetItem, setValidationTargetItem] = useState<MonitoringSurveyItem | null>(null);
+  const [selectedDrawerItem, setSelectedDrawerItem] = useState<MonitoringSurveyItem | null>(null);
+  const [selectedLinkCompanyId, setSelectedLinkCompanyId] = useState<string>('');
   const [activeTabulatingItem, setActiveTabulatingItem] = useState<MonitoringSurveyItem | null>(null);
   const [tabulationOutput, setTabulationOutput] = useState<ConexaTabulationOutput | null>(null);
   const [savedTemplateSuccess, setSavedTemplateSuccess] = useState<boolean>(false);
 
-  const handleSaveMappingPattern = (surveyId: string, mapping: Record<string, string>) => {
-    googleSurveyImportService.saveMappingTemplate(surveyId, mapping);
-    setSavedTemplateSuccess(true);
-    setTimeout(() => setSavedTemplateSuccess(false), 2500);
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [editingTotalValue, setEditingTotalValue] = useState<string>('');
+
+  const hasTabulatedReport = (companyId: string): boolean => {
+    if (!companyId || !assessments || assessments.length === 0) return false;
+    return assessments.some(a => a.companyId === companyId);
+  };
+
+  const handleOpenDrawer = (item: MonitoringSurveyItem) => {
+    setSelectedDrawerItem(item);
+    
+    // Inicializa o dropdown de vinculação individualmente para esta empresa
+    let initialLinkId = '';
+    if (item.companyId && companies.some(c => c.id === item.companyId)) {
+      initialLinkId = item.companyId;
+    } else {
+      const compNameUpper = item.companyName.toUpperCase().trim();
+      const match = companies.find(c =>
+        c.name.toUpperCase().trim() === compNameUpper ||
+        c.name.toUpperCase().trim().includes(compNameUpper) ||
+        compNameUpper.includes(c.name.toUpperCase().trim())
+      );
+      if (match) {
+        initialLinkId = match.id;
+      }
+    }
+
+    setSelectedLinkCompanyId(initialLinkId);
+  };
+
+  const handleConfirmLink = () => {
+    if (selectedLinkCompanyId && selectedDrawerItem) {
+      linkCompanyManual(selectedDrawerItem.id, selectedLinkCompanyId);
+      const matched = companies.find(c => c.id === selectedLinkCompanyId);
+      
+      setSelectedDrawerItem({
+        ...selectedDrawerItem,
+        companyId: selectedLinkCompanyId,
+        linkedCompanyName: matched?.name,
+        economicGroup: matched?.economicGroupName || selectedDrawerItem.economicGroup,
+        isLinked: true
+      });
+    }
+  };
+
+  const handleSaveTotal = (item: MonitoringSurveyItem) => {
+    const val = parseInt(editingTotalValue, 10);
+    if (!isNaN(val) && val >= 0) {
+      updateTotalEmployees(item.id, item.companyName, val);
+    }
+    setEditingItemId(null);
+  };
+
+  const handleQuickCreateCompany = (item: MonitoringSurveyItem) => {
+    if (onCreateCompany) {
+      onCreateCompany({
+        name: item.companyName,
+        economicGroupName: item.economicGroup !== 'Corporativo' && item.economicGroup !== 'Empresas Não Vinculadas' ? item.economicGroup : undefined,
+        employeeCount: item.totalEmployees || 10
+      });
+      item.isLinked = true;
+      setSelectedDrawerItem({ ...item, isLinked: true });
+    }
   };
 
   const handleExecuteTabulation = (item: MonitoringSurveyItem) => {
     setValidationTargetItem(null);
-    setActiveTabulatingItem(item);
-    const output = googleSurveyImportService.tabulateMonitoringSurvey(item);
-    setTabulationOutput(output);
+    setSelectedDrawerItem(null);
+
+    const hasReport = hasTabulatedReport(item.companyId);
+
+    if (hasReport) {
+      // Se a empresa possui relatórios salvos -> direciona para a aba de Inventário / Relatórios Salvos
+      if (onNavigateToInventory) {
+        onNavigateToInventory(item.companyId);
+      } else if (onNavigateToAssessments) {
+        onNavigateToAssessments(item.companyId);
+      }
+    } else {
+      // Se não houver relatórios salvos -> direciona para a aba de Avaliação para tabular
+      if (onNavigateToAssessments) {
+        onNavigateToAssessments(item.companyId);
+      } else {
+        setActiveTabulatingItem(item);
+        const output = googleSurveyImportService.tabulateMonitoringSurvey(item);
+        setTabulationOutput(output);
+      }
+    }
   };
 
   const formatLastSync = (date: Date | null) => {
-    if (!date) return 'Não sincronizado';
+    if (!date) return 'Nunca';
     return date.toLocaleString('pt-BR', {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
-      second: '2-digit'
+      second: '2-digit',
     });
   };
 
-  // Renderiza a Situação Geral Triangulada da Pesquisa Psicossocial
   const renderOverallStatusBadge = (status: OverallSurveyStatus) => {
     switch (status) {
-      case 'AWAITING_EMPLOYEES':
+      case 'READY_FOR_TABULATION':
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-300 text-amber-900 rounded-full text-[10px] font-black uppercase tracking-wider shadow-sm">
-            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
-            🟠 Aguardando respostas dos colaboradores
-          </span>
-        );
-      case 'AWAITING_MANAGER':
-        return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-yellow-50 border border-yellow-300 text-yellow-900 rounded-full text-[10px] font-black uppercase tracking-wider shadow-sm">
-            <span className="w-2 h-2 rounded-full bg-yellow-500 animate-ping"></span>
-            🟡 Aguardando resposta do gestor
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-100 border border-emerald-300 text-emerald-900 rounded-full text-[10px] font-black uppercase tracking-wider shadow-sm">
+            <CheckCircle2 size={13} className="text-emerald-600" />
+            🟢 Pronta p/ Tabulação
           </span>
         );
       case 'AWAITING_COMPANY_SURVEY':
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 border border-blue-300 text-blue-900 rounded-full text-[10px] font-black uppercase tracking-wider shadow-sm">
-            <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-            🔵 Aguardando Pesquisa da Empresa
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-100 border border-blue-300 text-blue-900 rounded-full text-[10px] font-black uppercase tracking-wider">
+            <Clock size={13} className="text-blue-600" />
+            🔵 Aguard. Pesquisa Empresa
           </span>
         );
-      case 'READY_FOR_TABULATION':
+      case 'AWAITING_MANAGER':
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 border border-emerald-400 text-emerald-900 rounded-full text-[10px] font-black uppercase tracking-wider shadow-sm">
-            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-            🟢 Pronta para tabulação
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-100 border border-amber-300 text-amber-900 rounded-full text-[10px] font-black uppercase tracking-wider">
+            <Clock size={13} className="text-amber-600" />
+            🟡 Aguard. Gestor
+          </span>
+        );
+      case 'AWAITING_EMPLOYEES':
+      default:
+        return (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-slate-100 border border-slate-300 text-slate-700 rounded-full text-[10px] font-black uppercase tracking-wider">
+            <Users size={13} className="text-slate-500" />
+            ⚪ Aguard. Colaboradores (&lt; 70%)
           </span>
         );
     }
   };
 
   return (
-    <div className="space-y-8 max-w-7xl mx-auto pb-12">
-      {/* Header Metodológico ConexaRP */}
-      <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6 relative overflow-hidden">
-        <div className="space-y-2 max-w-2xl z-10">
+    <div className="space-y-6">
+      {/* Cabeçalho do Módulo de Monitoramento */}
+      <div className="bg-white rounded-3xl border border-slate-200 p-6 md:p-8 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+        <div className="space-y-1.5">
           <div className="flex items-center gap-3">
-            <span className="px-3 py-1 bg-slate-900 text-white border border-slate-800 rounded-lg text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5">
-              <Sparkles size={12} className="text-amber-400" /> Metodologia Psicossocial ConexaRP
+            <span className="px-3 py-1 bg-slate-900 text-white rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+              <Sparkles size={12} className="text-amber-400" />
+              Metodologia Psicossocial ConexaRP
             </span>
-            <span className="text-xs text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1">
-              <Clock size={13} /> Sincronizado: <strong className="text-slate-800">{formatLastSync(lastSyncTime)}</strong>
+            <span className="text-xs text-slate-400 font-bold flex items-center gap-1">
+              <Clock size={13} /> Sincronizado: {formatLastSync(lastSyncTime)}
             </span>
           </div>
-          <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tight italic">
+          <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">
             Acompanhamento da Coleta Psicossocial
-          </h1>
-          <p className="text-xs text-slate-500 font-medium leading-relaxed">
-            Monitoramento triangulado das 3 fontes metodológicas: <strong>Colaboradores (Google)</strong>, <strong>Gestores (Google)</strong> e <strong>Pesquisa da Empresa (ConexaRP)</strong>.
+          </h2>
+          <p className="text-xs text-slate-500 font-medium max-w-2xl">
+            Monitoramento triangulado das 3 fontes metodológicas: Colaboradores (Google), Gestores (Google) e Pesquisa da Empresa (ConexaRP).
           </p>
         </div>
 
-        <div className="flex items-center gap-3 z-10 shrink-0">
+        <div className="flex items-center gap-3 shrink-0">
           <button
             onClick={() => setShowConfigModal(true)}
-            className="p-3 bg-slate-100 text-slate-700 rounded-2xl hover:bg-slate-200 transition-all text-xs font-bold flex items-center gap-2"
-            title="Configurar Pasta Raiz do Drive"
+            className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-3 rounded-2xl font-black text-xs uppercase tracking-wider transition-all flex items-center gap-2"
           >
-            <Settings size={18} />
-            <span className="hidden sm:inline">Configurar Drive</span>
+            <Settings size={16} /> Configurar Planilha Mestra
           </button>
-
+          
           <button
+            onClick={refreshSync}
             disabled={loading}
-            onClick={() => refreshSync()}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-600/20 transition-all active:scale-95 flex items-center gap-2.5 disabled:opacity-50"
+            className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-wider shadow-lg shadow-blue-600/20 transition-all active:scale-95 flex items-center gap-2"
           >
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
             {loading ? 'Sincronizando...' : 'Sincronizar Agora'}
@@ -160,249 +258,249 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({ companies = [] }
         </div>
       </div>
 
-      {error && (
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-amber-900 text-xs font-medium flex items-center justify-between gap-4 shadow-sm">
-          <div className="flex items-center gap-3">
-            <AlertTriangle size={18} className="text-amber-600 shrink-0" />
-            <span>Modo de demonstração ativado com o cadastro ConexaRP. Para ler dados reais do Drive, configure o ID da Pasta Raiz.</span>
-          </div>
-          <button
-            onClick={() => setShowConfigModal(true)}
-            className="px-4 py-2 bg-amber-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-amber-700 transition-colors shrink-0"
-          >
-            Configurar Pasta
-          </button>
-        </div>
-      )}
-
-      {/* 5 Indicadores KPIs Metodológicos no Topo */}
+      {/* Cartões de Indicadores KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        {/* Card 1: Em Andamento */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between hover:border-slate-300 transition-all">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Em Andamento</span>
-            <div className="w-8 h-8 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center">
-              <FolderGit2 size={16} />
-            </div>
+        <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm space-y-2">
+          <div className="flex items-center justify-between text-slate-400">
+            <span className="text-[10px] font-black uppercase tracking-widest">Em Andamento</span>
+            <div className="p-2 bg-slate-50 text-slate-600 rounded-xl"><Building2 size={16} /></div>
           </div>
-          <p className="text-2xl font-black text-slate-900">{kpis.activeSurveys}</p>
+          <p className="text-3xl font-black text-slate-900 tracking-tight">{kpis.activeSurveys}</p>
         </div>
 
-        {/* Card 2: Prontas para Tabulação */}
-        <div className="bg-white p-5 rounded-2xl border border-emerald-300 shadow-sm flex flex-col justify-between hover:border-emerald-500 transition-all">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest">Prontas p/ Tabulação</span>
-            <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-              <CheckCircle2 size={16} />
-            </div>
+        <div className="bg-emerald-50/50 p-5 rounded-3xl border border-emerald-200/80 shadow-sm space-y-2">
+          <div className="flex items-center justify-between text-emerald-800">
+            <span className="text-[10px] font-black uppercase tracking-widest">Prontas p/ Tabulação</span>
+            <div className="p-2 bg-emerald-100 text-emerald-700 rounded-xl"><CheckCircle2 size={16} /></div>
           </div>
-          <p className="text-2xl font-black text-emerald-700">{kpis.readyForTabulation}</p>
+          <p className="text-3xl font-black text-emerald-950 tracking-tight">{kpis.readyForTabulation}</p>
         </div>
 
-        {/* Card 3: Aguardando Pesquisa da Empresa */}
-        <div className="bg-white p-5 rounded-2xl border border-blue-200 shadow-sm flex flex-col justify-between hover:border-blue-400 transition-all">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-[9px] font-black text-blue-600 uppercase tracking-widest">Aguard. Empresa</span>
-            <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
-              <FileCheck2 size={16} />
-            </div>
+        <div className="bg-blue-50/50 p-5 rounded-3xl border border-blue-200/80 shadow-sm space-y-2">
+          <div className="flex items-center justify-between text-blue-800">
+            <span className="text-[10px] font-black uppercase tracking-widest">Aguard. Empresa</span>
+            <div className="p-2 bg-blue-100 text-blue-700 rounded-xl"><Clock size={16} /></div>
           </div>
-          <p className="text-2xl font-black text-blue-700">{kpis.awaitingCompanySurvey}</p>
+          <p className="text-3xl font-black text-blue-950 tracking-tight">{kpis.awaitingCompanySurvey}</p>
         </div>
 
-        {/* Card 4: Aguardando Gestor */}
-        <div className="bg-white p-5 rounded-2xl border border-yellow-200 shadow-sm flex flex-col justify-between hover:border-yellow-400 transition-all">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-[9px] font-black text-yellow-700 uppercase tracking-widest">Aguard. Gestor</span>
-            <div className="w-8 h-8 rounded-xl bg-yellow-50 text-yellow-700 flex items-center justify-center">
-              <UserCheck size={16} />
-            </div>
+        <div className="bg-amber-50/50 p-5 rounded-3xl border border-amber-200/80 shadow-sm space-y-2">
+          <div className="flex items-center justify-between text-amber-800">
+            <span className="text-[10px] font-black uppercase tracking-widest">Aguard. Gestor</span>
+            <div className="p-2 bg-amber-100 text-amber-700 rounded-xl"><UserCheck size={16} /></div>
           </div>
-          <p className="text-2xl font-black text-yellow-800">{kpis.awaitingManager}</p>
+          <p className="text-3xl font-black text-amber-950 tracking-tight">{kpis.awaitingManager}</p>
         </div>
 
-        {/* Card 5: Aguardando Colaboradores */}
-        <div className="bg-white p-5 rounded-2xl border border-amber-200 shadow-sm flex flex-col justify-between hover:border-amber-400 transition-all">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-[9px] font-black text-amber-600 uppercase tracking-widest">Aguard. Colaboradores</span>
-            <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
-              <Users size={16} />
-            </div>
+        <div className="bg-orange-50/50 p-5 rounded-3xl border border-orange-200/80 shadow-sm space-y-2">
+          <div className="flex items-center justify-between text-orange-800">
+            <span className="text-[10px] font-black uppercase tracking-widest">Aguard. Colaboradores</span>
+            <div className="p-2 bg-orange-100 text-orange-700 rounded-xl"><Users size={16} /></div>
           </div>
-          <p className="text-2xl font-black text-amber-700">{kpis.awaitingEmployees}</p>
+          <p className="text-3xl font-black text-orange-950 tracking-tight">{kpis.awaitingEmployees}</p>
         </div>
 
-        {/* Card 6: Engajamento Médio */}
-        <div className="bg-gradient-to-br from-slate-900 to-blue-950 p-5 rounded-2xl text-white shadow-md flex flex-col justify-between">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-[9px] font-black text-blue-300 uppercase tracking-widest">Média Engajamento</span>
-            <div className="w-8 h-8 rounded-xl bg-blue-500/20 text-blue-300 flex items-center justify-center border border-blue-400/30">
-              <BarChart3 size={16} />
-            </div>
+        <div className="bg-slate-900 p-5 rounded-3xl text-white shadow-xl space-y-2">
+          <div className="flex items-center justify-between text-slate-400">
+            <span className="text-[10px] font-black uppercase tracking-widest text-slate-300">Média Engajamento</span>
+            <div className="p-2 bg-slate-800 text-blue-400 rounded-xl"><BarChart3 size={16} /></div>
           </div>
-          <p className="text-2xl font-black text-white">{kpis.overallAverageParticipation}%</p>
+          <p className="text-3xl font-black tracking-tight text-white">{kpis.overallAverageParticipation}%</p>
         </div>
       </div>
 
       {/* Barra de Filtros */}
-      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
-        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
-          <div className="relative flex-1">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-            <input
-              type="text"
-              placeholder="Buscar por Empresa, Grupo Econômico ou Pesquisa..."
-              value={filters.searchQuery}
-              onChange={(e) => setFilters(prev => ({ ...prev, searchQuery: e.target.value }))}
-              className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
-            />
-          </div>
+      <div className="bg-white p-4 rounded-3xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-4 items-center justify-between">
+        <div className="relative flex-1 w-full">
+          <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Buscar por Empresa, Grupo Econômico ou Pesquisa..."
+            value={filters.searchQuery}
+            onChange={(e) => setFilters(prev => ({ ...prev, searchQuery: e.target.value }))}
+            className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+          />
+        </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2">
-              <Building2 size={15} className="text-slate-400" />
-              <select
-                value={filters.companyId}
-                onChange={(e) => setFilters(prev => ({ ...prev, companyId: e.target.value }))}
-                className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="ALL">Todas as Empresas</option>
-                {uniqueCompanies.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-            </div>
+        <div className="flex items-center gap-3 w-full md:w-auto">
+          <select
+            value={filters.companyId}
+            onChange={(e) => setFilters(prev => ({ ...prev, companyId: e.target.value }))}
+            className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+          >
+            <option value="ALL">Todas as Empresas</option>
+            {uniqueCompanies.map(c => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
 
-            <div className="flex items-center gap-2">
-              <Layers size={15} className="text-slate-400" />
-              <select
-                value={filters.economicGroup}
-                onChange={(e) => setFilters(prev => ({ ...prev, economicGroup: e.target.value }))}
-                className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="ALL">Todos os Grupos</option>
-                {uniqueEconomicGroups.map(g => (
-                  <option key={g} value={g}>{g}</option>
-                ))}
-              </select>
-            </div>
+          <select
+            value={filters.economicGroup}
+            onChange={(e) => setFilters(prev => ({ ...prev, economicGroup: e.target.value }))}
+            className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+          >
+            <option value="ALL">Todos os Grupos</option>
+            {uniqueEconomicGroups.map(g => (
+              <option key={g} value={g}>{g}</option>
+            ))}
+          </select>
 
-            <div className="flex items-center gap-2">
-              <Filter size={15} className="text-slate-400" />
-              <select
-                value={filters.status}
-                onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
-                className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="ALL">Todas as Situações</option>
-                <option value="AWAITING_EMPLOYEES">🟠 Aguardando colaboradores</option>
-                <option value="AWAITING_MANAGER">🟡 Aguardando gestor</option>
-                <option value="AWAITING_COMPANY_SURVEY">🔵 Aguardando Pesquisa da Empresa</option>
-                <option value="READY_FOR_TABULATION">🟢 Pronta para tabulação</option>
-              </select>
-            </div>
-          </div>
+          <select
+            value={filters.status}
+            onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
+            className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+          >
+            <option value="ALL">Todas as Situações</option>
+            <option value="READY_FOR_TABULATION">🟢 Pronta p/ Tabulação</option>
+            <option value="AWAITING_COMPANY_SURVEY">🔵 Aguard. Pesquisa Empresa</option>
+            <option value="AWAITING_MANAGER">🟡 Aguard. Gestor</option>
+            <option value="AWAITING_EMPLOYEES">⚪ Aguard. Colaboradores</option>
+          </select>
         </div>
       </div>
 
-      {/* Tabela de Acompanhamento das 3 Fontes de Dados */}
+      {/* Tabela de Acompanhamento Único da Planilha Mestra */}
       <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                <th className="py-4 px-6">Empresa & Grupo</th>
-                <th className="py-4 px-6">1. Colaboradores (Google)</th>
-                <th className="py-4 px-6">2. Gestores (Google)</th>
-                <th className="py-4 px-6">3. Pesquisa Empresa (ConexaRP)</th>
-                <th className="py-4 px-6">Situação Geral da Pesquisa</th>
+                <th className="py-4 px-6">Empresa (Coluna A)</th>
+                <th className="py-4 px-6">Colab (Coluna B)</th>
+                <th className="py-4 px-6">Gestor (Coluna C)</th>
+                <th className="py-4 px-6">Quadro (Coluna D)</th>
+                <th className="py-4 px-6">Progresso % (Coluna E)</th>
+                <th className="py-4 px-6">Situação Geral</th>
                 <th className="py-4 px-6 text-right">Ação</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs">
               {surveyItems.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-16 text-center text-slate-400 font-medium">
+                  <td colSpan={7} className="py-16 text-center text-slate-400 font-medium">
                     Nenhuma pesquisa encontrada para os filtros selecionados.
                   </td>
                 </tr>
               ) : (
                 surveyItems.map((item) => (
                   <tr key={item.id} className="hover:bg-slate-50/80 transition-colors group">
-                    {/* Empresa & Grupo */}
-                    <td className="py-5 px-6">
+                    {/* Coluna A: Empresa (Exibe exatamente a nomenclatura da Coluna A da Planilha) */}
+                    <td className="py-5 px-6 cursor-pointer" onClick={() => handleOpenDrawer(item)}>
                       <div className="space-y-0.5">
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
-                          {item.economicGroup || 'Empresa Independente'}
-                        </span>
-                        <h4 className="font-black text-slate-900 uppercase text-sm">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
+                            {item.economicGroup || 'Empresa Independente'}
+                          </span>
+                          {!item.isLinked && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 rounded text-[9px] font-black uppercase">
+                              ⚠️ Não vinculada
+                            </span>
+                          )}
+                        </div>
+                        <h4 className="font-black text-slate-900 hover:text-blue-600 uppercase text-sm flex items-center gap-1.5 transition-colors">
                           {item.companyName}
                         </h4>
-                        <p className="text-[10px] text-slate-500 font-medium truncate max-w-[200px]">
-                          {item.surveyName}
-                        </p>
-                      </div>
-                    </td>
-
-                    {/* Fonte 1: Colaboradores */}
-                    <td className="py-5 px-6">
-                      <div className="space-y-1.5 max-w-[180px]">
-                        <div className="flex items-center justify-between text-[11px] font-black">
-                          <span className="text-slate-800">{item.employeeResponses} respostas</span>
-                          <span className={item.participationPercentage >= 70 ? 'text-emerald-700' : 'text-amber-700'}>
-                            {item.participationPercentage}%
+                        {item.isLinked && item.linkedCompanyName && item.linkedCompanyName.toUpperCase().trim() !== item.companyName.toUpperCase().trim() && (
+                          <span className="text-[10px] font-bold text-emerald-700 block">
+                            🔗 Vinculada a: {item.linkedCompanyName}
                           </span>
-                        </div>
-                        <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                          <div
-                            className={`h-full rounded-full transition-all ${
-                              item.participationPercentage >= 70 ? 'bg-emerald-500' : 'bg-amber-500'
-                            }`}
-                            style={{ width: `${Math.min(100, item.participationPercentage)}%` }}
-                          ></div>
-                        </div>
-                        <span className="text-[9px] text-slate-400 font-bold block">
-                          Quadro oficial: {item.totalEmployees} colab. (Meta 70%)
-                        </span>
-                      </div>
-                    </td>
-
-                    {/* Fonte 2: Gestores */}
-                    <td className="py-5 px-6">
-                      <div className="space-y-1">
-                        {item.managerResponses > 0 ? (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-lg text-[10px] font-black uppercase">
-                            <CheckCircle2 size={12} className="text-emerald-600" />
-                            {item.managerResponses} {item.managerResponses === 1 ? 'resposta' : 'respostas'}
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-yellow-50 text-yellow-900 border border-yellow-300 rounded-lg text-[10px] font-black uppercase">
-                            <Clock size={12} className="text-yellow-600" />
-                            0 respostas (Pendente)
+                        )}
+                        {item.lastResponseDateStr && (
+                          <span className="text-[9px] text-slate-400 font-medium block">
+                            Última: {item.lastResponseDateStr}
                           </span>
                         )}
                       </div>
                     </td>
 
-                    {/* Fonte 3: Pesquisa Empresa (Status Manual) */}
+                    {/* Coluna B: Colab */}
                     <td className="py-5 px-6">
-                      <div className="space-y-1.5">
-                        <select
-                          value={item.companySurveyStatus}
-                          onChange={(e) => updateCompanySurveyStatus(item.id, e.target.value as CompanySurveyStatus)}
-                          className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider border focus:outline-none focus:ring-2 cursor-pointer transition-all ${
-                            item.companySurveyStatus === 'COMPLETED'
-                              ? 'bg-emerald-50 border-emerald-300 text-emerald-900 focus:ring-emerald-500'
-                              : item.companySurveyStatus === 'IN_PROGRESS'
-                              ? 'bg-blue-50 border-blue-300 text-blue-900 focus:ring-blue-500'
-                              : 'bg-slate-100 border-slate-300 text-slate-700 focus:ring-slate-400'
-                          }`}
+                      <span className="font-black text-slate-800 text-sm">
+                        {item.employeeResponses} <span className="text-[10px] font-bold text-slate-400">resp.</span>
+                      </span>
+                    </td>
+
+                    {/* Coluna C: Gestor */}
+                    <td className="py-5 px-6">
+                      {item.managerResponses > 0 ? (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-lg text-[10px] font-black uppercase">
+                          <CheckCircle2 size={12} className="text-emerald-600" />
+                          {item.managerResponses} {item.managerResponses === 1 ? 'resp.' : 'resp.'}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-yellow-50 text-yellow-900 border border-yellow-300 rounded-lg text-[10px] font-black uppercase">
+                          <Clock size={12} className="text-yellow-600" />
+                          0 (Pendente)
+                        </span>
+                      )}
+                    </td>
+
+                    {/* Coluna D: Quadro (Total Colaboradores - Editável no Google Sheets) */}
+                    <td className="py-5 px-6">
+                      {editingItemId === item.id ? (
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number"
+                            min="0"
+                            value={editingTotalValue}
+                            onChange={(e) => setEditingTotalValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleSaveTotal(item);
+                              if (e.key === 'Escape') setEditingItemId(null);
+                            }}
+                            className="w-20 px-2 py-1 bg-white border-2 border-emerald-500 rounded-lg text-xs font-black text-slate-900 focus:outline-none shadow-sm"
+                            autoFocus
+                          />
+                          <button
+                            onClick={() => handleSaveTotal(item)}
+                            className="p-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-all shadow-sm active:scale-95"
+                            title="Salvar na Planilha Google"
+                          >
+                            <Check size={13} />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            setEditingItemId(item.id);
+                            setEditingTotalValue(String(item.totalEmployees));
+                          }}
+                          className="group/edit inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 rounded-xl transition-all text-left"
+                          title="Clique para editar a Coluna D e salvar no Google Sheets"
                         >
-                          <option value="NOT_STARTED">⚪ Não iniciada</option>
-                          <option value="IN_PROGRESS">🔵 Em andamento</option>
-                          <option value="COMPLETED">🟢 Concluída</option>
-                        </select>
-                        <p className="text-[9px] text-slate-400 font-medium">Preenchimento Manual ConexaRP</p>
+                          <span className="font-bold text-slate-800 text-xs">
+                            {item.totalEmployees} <span className="text-[9px] text-slate-400 font-medium">colab.</span>
+                          </span>
+                          <Pencil size={11} className="text-slate-400 group-hover/edit:text-emerald-600 transition-colors" />
+                        </button>
+                      )}
+                    </td>
+
+                    {/* Coluna E: Progresso % (Com badge verde para 100%) */}
+                    <td className="py-5 px-6">
+                      <div className="space-y-1 max-w-[140px]">
+                        {item.participationPercentage >= 100 ? (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-100 border border-emerald-300 text-emerald-800 rounded-full text-xs font-black shadow-sm">
+                            <CheckCircle2 size={13} className="text-emerald-600" /> 100% Concluído
+                          </span>
+                        ) : item.participationPercentage >= 70 ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-full text-xs font-black">
+                            {item.participationPercentage}%
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-amber-50 border border-amber-200 text-amber-700 rounded-full text-xs font-black">
+                            {item.participationPercentage}%
+                          </span>
+                        )}
+
+                        <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${
+                              item.participationPercentage >= 100 ? 'bg-emerald-600' : item.participationPercentage >= 70 ? 'bg-emerald-500' : 'bg-amber-500'
+                            }`}
+                            style={{ width: `${Math.min(100, item.participationPercentage)}%` }}
+                          ></div>
+                        </div>
                       </div>
                     </td>
 
@@ -413,19 +511,39 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({ companies = [] }
 
                     {/* Ação */}
                     <td className="py-5 px-6 text-right">
-                      {item.overallStatus === 'READY_FOR_TABULATION' ? (
+                      <div className="flex items-center justify-end gap-2">
                         <button
-                          onClick={() => setValidationTargetItem(item)}
-                          className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-wider shadow-lg shadow-emerald-600/20 transition-all active:scale-95 flex items-center gap-1.5 ml-auto"
-                          title="Validar pesquisas e gerar relatório psicossocial"
+                          onClick={() => handleOpenDrawer(item)}
+                          className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all"
+                          title="Ver detalhes da empresa"
                         >
-                          <FileCheck2 size={14} /> Validar & Tabular
+                          <ExternalLink size={14} />
                         </button>
-                      ) : (
-                        <span className="text-[10px] font-bold text-slate-400 uppercase italic">
-                          Aguardando Fases
-                        </span>
-                      )}
+
+                        {item.overallStatus === 'READY_FOR_TABULATION' ? (
+                          hasTabulatedReport(item.companyId) ? (
+                            <button
+                              onClick={() => handleExecuteTabulation(item)}
+                              className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-wider shadow-lg shadow-blue-600/20 transition-all active:scale-95 flex items-center gap-1.5"
+                              title="Empresa possui relatórios salvos. Clique para visualizar no Inventário"
+                            >
+                              <BarChart3 size={14} /> Visualizar Relatório
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleExecuteTabulation(item)}
+                              className="bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-2 rounded-xl font-black text-[10px] uppercase tracking-wider shadow-lg shadow-emerald-600/20 transition-all active:scale-95 flex items-center gap-1.5"
+                              title="Validar pesquisas e direcionar para Avaliações (GRO/PGR)"
+                            >
+                              <FileCheck2 size={14} /> Validar & Tabular
+                            </button>
+                          )
+                        ) : (
+                          <span className="text-[10px] font-bold text-slate-400 uppercase italic">
+                            Aguardando
+                          </span>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -435,235 +553,191 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({ companies = [] }
         </div>
       </div>
 
-      {/* Modal de Configuração do ID da Pasta Raiz do Drive */}
-      {showConfigModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-8 shadow-2xl space-y-6 relative border border-slate-100">
-            <button
-              onClick={() => setShowConfigModal(false)}
-              className="absolute top-6 right-6 text-slate-400 hover:text-slate-600 transition-colors"
-            >
-              <X size={20} />
-            </button>
-
-            <div className="space-y-2">
-              <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mb-4">
-                <Settings size={24} />
-              </div>
-              <h3 className="text-lg font-black text-slate-900 uppercase tracking-tight">
-                Configurar Drive do Google Workspace
-              </h3>
-              <p className="text-xs text-slate-500 font-medium leading-relaxed">
-                Insira o ID da Pasta Raiz no Google Drive onde as pesquisas corporativas estão organizadas.
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                ID da Pasta Raiz (Google Drive)
-              </label>
-              <input
-                type="text"
-                placeholder="Ex: 1A2b3C4d5E6f7G8h9I0j"
-                value={inputFolderId}
-                onChange={(e) => setInputFolderId(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-
-            <div className="flex items-center gap-3 pt-4 border-t border-slate-100">
-              <button
-                onClick={() => setShowConfigModal(false)}
-                className="flex-1 py-3 text-slate-600 font-black text-xs uppercase tracking-wider hover:bg-slate-50 rounded-xl transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={() => {
-                  handleSaveRootFolderId(inputFolderId);
-                  setShowConfigModal(false);
-                }}
-                className="flex-1 py-3 bg-blue-600 text-white font-black text-xs uppercase tracking-wider rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-600/20 transition-all"
-              >
-                Salvar & Sincronizar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal de Resultado da Tabulação Triangulada */}
-      {tabulationOutput && activeTabulatingItem && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-2xl w-full p-8 shadow-2xl space-y-6 relative border border-slate-100 max-h-[90vh] overflow-y-auto">
-            <button
-              onClick={() => {
-                setTabulationOutput(null);
-                setActiveTabulatingItem(null);
-              }}
-              className="absolute top-6 right-6 text-slate-400 hover:text-slate-600 transition-colors"
-            >
-              <X size={20} />
-            </button>
-
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center">
-                <CheckCircle2 size={26} />
-              </div>
-              <div>
-                <span className="px-2.5 py-0.5 bg-emerald-100 text-emerald-800 rounded text-[9px] font-black uppercase tracking-widest">
-                  Tabulação Psicossocial ConexaRP Triangulada
+      {/* PAINEL LATERAL (DRAWER) DE DETALHES DA EMPRESA */}
+      {selectedDrawerItem && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex justify-end animate-in fade-in duration-200">
+          <div className="w-full max-w-xl bg-white h-full shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-right duration-300">
+            {/* Header do Drawer */}
+            <div className="p-6 bg-slate-900 text-white flex items-center justify-between">
+              <div className="space-y-1">
+                <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest block">
+                  {selectedDrawerItem.economicGroup}
                 </span>
-                <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight mt-1">
-                  {activeTabulatingItem.companyName}
+                <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-2">
+                  <Building2 size={20} className="text-blue-400" />
+                  {selectedDrawerItem.companyName}
                 </h3>
               </div>
+              <button
+                onClick={() => setSelectedDrawerItem(null)}
+                className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-all"
+              >
+                <X size={20} />
+              </button>
             </div>
 
-            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 grid grid-cols-3 gap-4 text-center">
-              <div>
-                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">1. Colaboradores</span>
-                <p className="text-lg font-black text-blue-700">{activeTabulatingItem.employeeResponses} resp. ({activeTabulatingItem.participationPercentage}%)</p>
-              </div>
-              <div>
-                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">2. Gestores</span>
-                <p className="text-lg font-black text-amber-700">{activeTabulatingItem.managerResponses} resp.</p>
-              </div>
-              <div>
-                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">3. Pesquisa Empresa</span>
-                <p className="text-lg font-black text-emerald-700">Concluída</p>
-              </div>
-            </div>
+            {/* Conteúdo Principal do Drawer */}
+            <div className="p-6 flex-1 overflow-y-auto space-y-6">
+              {/* Card de Vinculação / Mapeamento com Empresa no ConexaRP */}
+              <div className={`p-5 rounded-2xl border space-y-3 ${selectedDrawerItem.isLinked ? 'bg-emerald-50/60 border-emerald-200' : 'bg-amber-50/80 border-amber-200'}`}>
+                <div className="flex items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-black uppercase tracking-widest block text-slate-500">
+                      Status de Vinculação no ConexaRP
+                    </span>
+                    <p className={`text-xs font-black uppercase flex items-center gap-1.5 ${selectedDrawerItem.isLinked ? 'text-emerald-900' : 'text-amber-900'}`}>
+                      {selectedDrawerItem.isLinked ? (
+                        <>
+                          <CheckCircle2 size={14} className="text-emerald-600" />
+                          Empresa Vinculada ({selectedDrawerItem.linkedCompanyName || selectedDrawerItem.companyName})
+                        </>
+                      ) : (
+                        <>
+                          <AlertTriangle size={14} className="text-amber-600" />
+                          Empresa Não Vinculada no Sistema
+                        </>
+                      )}
+                    </p>
+                  </div>
+                </div>
 
-            <div className="space-y-3">
-              <h4 className="text-xs font-black text-slate-700 uppercase tracking-wider">
-                Médias por Domínio Psicossocial (Eixo GRO/PGR):
-              </h4>
-              <div className="grid gap-2">
-                {tabulationOutput.domains.map((dom) => (
-                  <div key={dom.id} className="p-3 bg-white border border-slate-200 rounded-xl flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-800">{dom.name}</span>
-                    <div className="flex items-center gap-4 text-xs font-black">
-                      <span className="text-blue-700">Colab: {dom.employeeMean}</span>
-                      <span className="text-amber-700">Gestor: {dom.managerMean}</span>
+                {/* Seção de Ações de Vinculação */}
+                <div className="pt-3 border-t border-slate-200/60 space-y-3">
+                  <div className="space-y-1.5">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-600 block">
+                      🔗 Vincular a uma Empresa Já Cadastrada / Tabulada no ConexaRP:
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={selectedLinkCompanyId}
+                        onChange={(e) => setSelectedLinkCompanyId(e.target.value)}
+                        className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="">Selecione uma empresa existente...</option>
+                        {companies.map(c => (
+                          <option key={c.id} value={c.id}>
+                            🏢 {c.name} {c.economicGroupName ? `(${c.economicGroupName})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        disabled={!selectedLinkCompanyId}
+                        onClick={handleConfirmLink}
+                        className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1 shrink-0"
+                      >
+                        <Link2 size={13} /> Vincular
+                      </button>
                     </div>
                   </div>
-                ))}
-              </div>
-            </div>
 
-            <div className="pt-4 border-t border-slate-100 flex justify-end">
-              <button
-                onClick={() => {
-                  setTabulationOutput(null);
-                  setActiveTabulatingItem(null);
-                }}
-                className="px-6 py-3 bg-slate-900 text-white text-xs font-black uppercase tracking-wider rounded-xl hover:bg-slate-800 shadow-md"
-              >
-                Concluir & Retornar ao Dashboard
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal de Validação Pré-Tabulação (Sprint 6.1 Requisitos 1, 3, 4, 6, 7 e 8) */}
-      {validationTargetItem && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-xl w-full p-8 shadow-2xl space-y-6 relative border border-slate-100 max-h-[90vh] overflow-y-auto">
-            <button
-              onClick={() => setValidationTargetItem(null)}
-              className="absolute top-6 right-6 text-slate-400 hover:text-slate-600 transition-colors"
-            >
-              <X size={20} />
-            </button>
-
-            <div className="space-y-1">
-              <span className="px-2.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 w-fit">
-                <FileCheck size={12} /> Etapa 1: Validar Pesquisas & Estrutura
-              </span>
-              <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">
-                Checklist de Validação - {validationTargetItem.companyName}
-              </h3>
-              <p className="text-xs text-slate-500 font-medium">
-                Conferência automática da estrutura de colunas e prontidão das 3 fontes metodológicas.
-              </p>
-            </div>
-
-            {/* Checklist Visual Formatado da Sprint 7 */}
-            <div className="space-y-4 bg-slate-50 p-6 rounded-2xl border border-slate-200 divide-y divide-slate-200/60">
-              {/* Empresa */}
-              <div className="pb-3 flex justify-between items-center">
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Empresa</span>
-                <span className="text-xs font-black text-slate-900 uppercase">{validationTargetItem.companyName}</span>
-              </div>
-
-              {/* Pesquisa Colaboradores */}
-              <div className="py-3 space-y-1.5">
-                <div className="flex justify-between items-center">
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Pesquisa Colaboradores</span>
-                  <span className="text-xs font-black text-blue-700">{validationTargetItem.employeeResponses} respostas</span>
-                </div>
-                <div className="grid grid-cols-2 gap-2 text-xs font-bold text-slate-800 bg-white p-3 rounded-xl border border-slate-200">
-                  <span className="text-emerald-700 flex items-center gap-1.5">✅ Estrutura encontrada</span>
-                  <span className="text-emerald-700 flex items-center gap-1.5">✅ Perguntas reconhecidas (15/15)</span>
-                  <span className="text-emerald-700 flex items-center gap-1.5">✅ Unidade (MATRIZ)</span>
-                  <span className="text-emerald-700 flex items-center gap-1.5">✅ Setor (Auto-detectado)</span>
-                  <span className="text-emerald-700 flex items-center gap-1.5 col-span-2">✅ Função / Cargo OK</span>
+                  {!selectedDrawerItem.isLinked && (
+                    <div className="pt-2 flex items-center justify-between border-t border-slate-200/40">
+                      <span className="text-[9px] font-bold text-slate-500">
+                        Ou se for uma empresa nova que ainda não foi cadastrada:
+                      </span>
+                      <button
+                        onClick={() => handleQuickCreateCompany(selectedDrawerItem)}
+                        className="bg-amber-600 hover:bg-amber-500 text-white px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1 shrink-0"
+                      >
+                        <PlusCircle size={13} /> Cadastrar Nova Empresa
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* Pesquisa Gestores */}
-              <div className="py-3 space-y-1.5">
-                <div className="flex justify-between items-center">
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Pesquisa Gestores</span>
-                  <span className="text-xs font-black text-amber-700">{validationTargetItem.managerResponses} respostas</span>
+              {/* Card de Métricas Trianguladas */}
+              <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 space-y-4">
+                <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                  <BarChart3 size={16} className="text-blue-600" />
+                  Triangulação Metodológica ConexaRP
+                </h4>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-1">
+                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">1. Colaboradores</span>
+                    <p className="text-lg font-black text-slate-900">{selectedDrawerItem.employeeResponses} respostas</p>
+                    <span className="text-[10px] font-bold text-slate-500 block">
+                      Quadro: {selectedDrawerItem.totalEmployees} colab. ({selectedDrawerItem.participationPercentage}%)
+                    </span>
+                  </div>
+
+                  <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-1">
+                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">2. Gestores</span>
+                    <p className="text-lg font-black text-slate-900">{selectedDrawerItem.managerResponses} respostas</p>
+                    <span className="text-[10px] font-bold text-slate-500 block">
+                      {selectedDrawerItem.managerResponses > 0 ? '🟢 Gestor Preenchido' : '🟡 Gestor Pendente'}
+                    </span>
+                  </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-xs font-bold text-slate-800 bg-white p-3 rounded-xl border border-slate-200">
-                  <span className="text-emerald-700 flex items-center gap-1.5">✅ Estrutura encontrada</span>
-                  <span className="text-emerald-700 flex items-center gap-1.5">✅ Perguntas reconhecidas (15/15)</span>
-                </div>
+
+                {selectedDrawerItem.lastResponseDateStr && (
+                  <p className="text-[10px] text-slate-400 font-medium">
+                    📅 Última resposta na Planilha: <strong className="text-slate-700">{selectedDrawerItem.lastResponseDateStr}</strong>
+                  </p>
+                )}
               </div>
 
-              {/* Pesquisa Empresa */}
-              <div className="py-3 flex justify-between items-center">
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Pesquisa Empresa</span>
-                <span className="text-xs font-bold text-emerald-700 flex items-center gap-1">✅ Respondida / Concluída</span>
-              </div>
-
-              {/* Mapeamento */}
-              <div className="py-3 flex justify-between items-center">
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Mapeamento</span>
-                <span className="text-xs font-bold text-emerald-700 flex items-center gap-1">✅ Completo (100% Validado)</span>
-              </div>
-
-              {/* Status Geral */}
-              <div className="pt-3 flex items-center justify-between">
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Status Geral</span>
-                <span className="px-3.5 py-1.5 bg-emerald-100 text-emerald-900 border border-emerald-300 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse"></span>
-                  🟢 Pronta para tabulação
+              {/* Status da Pesquisa Empresa (Manual) */}
+              <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 space-y-2">
+                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">
+                  3. Status da Pesquisa da Empresa (Preenchimento ConexaRP)
                 </span>
+                <select
+                  value={selectedDrawerItem.companySurveyStatus}
+                  onChange={(e) => {
+                    const newStatus = e.target.value as CompanySurveyStatus;
+                    updateCompanySurveyStatus(selectedDrawerItem.id, newStatus);
+                    setSelectedDrawerItem({ ...selectedDrawerItem, companySurveyStatus: newStatus });
+                  }}
+                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="NOT_STARTED">⚪ Não iniciada</option>
+                  <option value="IN_PROGRESS">🔵 Em andamento</option>
+                  <option value="COMPLETED">🟢 Concluída</option>
+                </select>
+              </div>
+
+              {/* Situação Geral */}
+              <div className="p-5 bg-slate-900 text-white rounded-2xl space-y-3">
+                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Situação Geral Triangulada</span>
+                <div>{renderOverallStatusBadge(selectedDrawerItem.overallStatus)}</div>
+                <p className="text-xs text-slate-300 font-medium">
+                  {selectedDrawerItem.overallStatus === 'READY_FOR_TABULATION' 
+                    ? 'A empresa atingiu todos os pré-requisitos da Metodologia RP (70%+ colaboradores, gestor preenchido e pesquisa da empresa concluída) e está totalmente apta para tabulação!'
+                    : 'Aguardando o preenchimento de todas as 3 fontes metodológicas para liberar a tabulação psicossocial dos riscos.'}
+                </p>
               </div>
             </div>
 
-            {/* Ações de Mapeamento Padrão & Geração de Relatório */}
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-100">
-              <button
-                onClick={() => handleSaveMappingPattern(validationTargetItem.id, { unit: 'Unidade', sector: 'Setor' })}
-                className="w-full sm:w-auto text-slate-600 hover:text-slate-900 font-black text-[10px] uppercase tracking-wider px-3 py-2 rounded-lg hover:bg-slate-50 transition-colors flex items-center justify-center gap-1.5"
-              >
-                <Check size={14} className="text-emerald-600" />
-                {savedTemplateSuccess ? '✅ Mapeamento Salvo como Padrão!' : 'Salvar Mapeamento como Padrão'}
-              </button>
-
-              <button
-                onClick={() => handleExecuteTabulation(validationTargetItem)}
-                className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase tracking-wider px-6 py-3.5 rounded-2xl shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2 transition-all active:scale-95"
-              >
-                <BarChart3 size={16} />
-                Gerar Relatório
-              </button>
+            {/* Rodapé de Ações do Drawer */}
+            <div className="p-6 bg-slate-50 border-t border-slate-200">
+              {selectedDrawerItem.overallStatus === 'READY_FOR_TABULATION' ? (
+                hasTabulatedReport(selectedDrawerItem.companyId) ? (
+                  <button
+                    onClick={() => handleExecuteTabulation(selectedDrawerItem)}
+                    className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3.5 rounded-2xl font-black text-xs uppercase tracking-wider shadow-lg shadow-blue-600/20 transition-all active:scale-95 flex items-center justify-center gap-2"
+                  >
+                    <BarChart3 size={16} /> Visualizar Relatório (Inventário GRO/PGR)
+                    <ArrowRight size={16} />
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleExecuteTabulation(selectedDrawerItem)}
+                    className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-3.5 rounded-2xl font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-600/20 transition-all active:scale-95 flex items-center justify-center gap-2"
+                  >
+                    <FileCheck2 size={16} /> Validar & Direcionar para Avaliação (GRO/PGR)
+                    <ArrowRight size={16} />
+                  </button>
+                )
+              ) : (
+                <button
+                  disabled
+                  className="w-full bg-slate-200 text-slate-400 py-3.5 rounded-2xl font-black text-xs uppercase tracking-wider cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  Aguardando Fases da Metodologia RP
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -673,4 +747,3 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({ companies = [] }
 };
 
 export default WorkspaceMonitoringDashboard;
-
