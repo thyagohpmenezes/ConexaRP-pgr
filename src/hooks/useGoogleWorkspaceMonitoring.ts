@@ -71,6 +71,20 @@ function getPersistedCompanyLink(surveyId: string): string | null {
   return null;
 }
 
+export function getPersistedTabulatedState(surveyId: string): boolean {
+  try {
+    return localStorage.getItem(`conexarp_company_tabulated_${surveyId}`) === 'true';
+  } catch {}
+  return false;
+}
+
+export function setPersistedTabulatedState(surveyId: string): void {
+  try {
+    localStorage.setItem(`conexarp_company_tabulated_${surveyId}`, 'true');
+    localStorage.setItem(`conexarp_company_survey_status_${surveyId}`, 'COMPLETED');
+  } catch {}
+}
+
 export function useGoogleWorkspaceMonitoring(companies: Company[] = []) {
   const [rootFolderId, setRootFolderId] = useState<string>(() => googleWorkspaceBackendService.getMasterSheetId());
   const [loading, setLoading] = useState<boolean>(true);
@@ -90,18 +104,19 @@ export function useGoogleWorkspaceMonitoring(companies: Company[] = []) {
   const calculateOverallStatus = (
     participation: number, 
     managerCount: number, 
-    companyStatus: CompanySurveyStatus
+    companyStatus: CompanySurveyStatus,
+    isTabulated = false
   ): OverallSurveyStatus => {
+    if (isTabulated || companyStatus === 'COMPLETED') {
+      return 'READY_FOR_TABULATION';
+    }
     if (participation < 70) {
       return 'AWAITING_EMPLOYEES';
     }
     if (managerCount === 0) {
       return 'AWAITING_MANAGER';
     }
-    if (companyStatus !== 'COMPLETED') {
-      return 'AWAITING_COMPANY_SURVEY';
-    }
-    return 'READY_FOR_TABULATION';
+    return 'AWAITING_COMPANY_SURVEY';
   };
 
   /**
@@ -176,7 +191,9 @@ export function useGoogleWorkspaceMonitoring(companies: Company[] = []) {
         : (totalEmployees > 0 ? Number(((empResponses / totalEmployees) * 100).toFixed(1)) : 0);
 
       const companySurveyStatus = getPersistedCompanyStatus(itemId, 'NOT_STARTED');
-      const overallStatus = calculateOverallStatus(participationPercentage, mngResponses, companySurveyStatus);
+      const isTabulatedPersisted = getPersistedTabulatedState(itemId) || (matchedCompany?.id ? getPersistedTabulatedState(matchedCompany.id) : false);
+      const effectiveCompanyStatus = isTabulatedPersisted ? 'COMPLETED' : companySurveyStatus;
+      const overallStatus = calculateOverallStatus(participationPercentage, mngResponses, effectiveCompanyStatus, isTabulatedPersisted);
 
       items.push({
         id: itemId,
@@ -190,7 +207,7 @@ export function useGoogleWorkspaceMonitoring(companies: Company[] = []) {
         managerResponses: mngResponses,
         totalEmployees,
         participationPercentage,
-        companySurveyStatus,
+        companySurveyStatus: effectiveCompanyStatus,
         overallStatus,
         lastSyncedAt: new Date(syncResult.scannedAt || Date.now()),
         lastResponseDateStr: compSummary.lastResponseDate,
@@ -245,14 +262,33 @@ export function useGoogleWorkspaceMonitoring(companies: Company[] = []) {
     fetchSyncData(rootFolderId, true);
   };
 
+  const markCompanyAsTabulated = useCallback((surveyId: string) => {
+    setPersistedTabulatedState(surveyId);
+
+    setSurveyItems(prev => prev.map(item => {
+      if (item.id === surveyId || item.companyId === surveyId) {
+        return {
+          ...item,
+          companySurveyStatus: 'COMPLETED',
+          overallStatus: 'READY_FOR_TABULATION'
+        };
+      }
+      return item;
+    }));
+  }, []);
+
   const updateCompanySurveyStatus = (surveyId: string, status: CompanySurveyStatus) => {
     try {
       localStorage.setItem(`conexarp_company_survey_status_${surveyId}`, status);
+      if (status === 'COMPLETED') {
+        localStorage.setItem(`conexarp_company_tabulated_${surveyId}`, 'true');
+      }
     } catch {}
 
     setSurveyItems(prev => prev.map(item => {
-      if (item.id === surveyId) {
-        const newOverall = calculateOverallStatus(item.participationPercentage, item.managerResponses, status);
+      if (item.id === surveyId || item.companyId === surveyId) {
+        const isTabulated = status === 'COMPLETED' || getPersistedTabulatedState(item.id) || (item.companyId ? getPersistedTabulatedState(item.companyId) : false);
+        const newOverall = calculateOverallStatus(item.participationPercentage, item.managerResponses, status, isTabulated);
         return {
           ...item,
           companySurveyStatus: status,
@@ -325,8 +361,13 @@ export function useGoogleWorkspaceMonitoring(companies: Company[] = []) {
       if (filters.economicGroup !== 'ALL' && item.economicGroup !== filters.economicGroup) {
         return false;
       }
-      if (filters.status !== 'ALL' && item.overallStatus !== filters.status) {
-        return false;
+      if (filters.status !== 'ALL') {
+        if (filters.status === 'TABULATED') {
+          const isTabulated = getPersistedTabulatedState(item.id) || (item.companyId ? getPersistedTabulatedState(item.companyId) : false);
+          if (!isTabulated) return false;
+        } else if (item.overallStatus !== filters.status) {
+          return false;
+        }
       }
       if (filters.searchQuery.trim()) {
         const query = filters.searchQuery.toLowerCase();
@@ -377,6 +418,30 @@ export function useGoogleWorkspaceMonitoring(companies: Company[] = []) {
     return Array.from(set).sort();
   }, [surveyItems]);
 
+  const recentResponses = useMemo(() => {
+    let rows: MasterSheetRow[] = [];
+
+    if (rawSyncResult && Array.isArray(rawSyncResult.rows) && rawSyncResult.rows.length > 0) {
+      rows = rawSyncResult.rows;
+    } else {
+      surveyItems.forEach(item => {
+        if (item.collabRows && item.collabRows.length > 0) {
+          rows.push(...item.collabRows);
+        }
+        if (item.managerRows && item.managerRows.length > 0) {
+          rows.push(...item.managerRows);
+        }
+      });
+    }
+
+    return [...rows].sort((a, b) => {
+      const dateA = new Date(a.carimbo || 0).getTime();
+      const dateB = new Date(b.carimbo || 0).getTime();
+      if (isNaN(dateA) || isNaN(dateB)) return 0;
+      return dateB - dateA;
+    });
+  }, [rawSyncResult, surveyItems]);
+
   return {
     loading,
     error,
@@ -384,6 +449,7 @@ export function useGoogleWorkspaceMonitoring(companies: Company[] = []) {
     rootFolderId,
     surveyItems: filteredItems,
     allSurveyItems: surveyItems,
+    recentResponses,
     kpis,
     filters,
     setFilters,
@@ -392,6 +458,7 @@ export function useGoogleWorkspaceMonitoring(companies: Company[] = []) {
     refreshSync,
     handleSaveRootFolderId,
     updateCompanySurveyStatus,
+    markCompanyAsTabulated,
     updateTotalEmployees,
     linkCompanyManual
   };

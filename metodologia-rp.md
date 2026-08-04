@@ -426,21 +426,17 @@ Use esta tabela como referência para preenchimento automático dos campos "Risc
 
 | Perigo | Risco (descrição técnica) | Danos / Agravos |
 |---|---|---|
-| Sobrecarga de trabalho | Exposição a volume excessivo de tarefas, pressão por produtividade e acúmulo de demandas acima da capacidade operacional. | Estresse ocupacional, fadiga mental, erro operacional, adoecimento psíquico, absenteísmo e afastamentos. |
-| Ritmo de trabalho excessivo | Exigência de execução acelerada e contínua, com baixa margem para pausas e recuperação. | Fadiga, perda de atenção, irritabilidade, aumento de incidentes, acidentes e esgotamento. |
-| Pausas insuficientes ou interrompidas | Ausência de descanso efetivo durante a jornada e impossibilidade de recuperação física e cognitiva. | Exaustão, redução de desempenho, dores e desconfortos associados, erros e adoecimento relacionado ao trabalho. |
-| Metas e prazos incompatíveis | Cobrança por resultados sem correspondência com efetivo, recursos e tempo disponíveis. | Ansiedade, pressão psicológica, conflito, retrabalho, adoecimento e afastamento. |
-| Baixa autonomia e controle sobre o trabalho | Restrição excessiva para decidir como executar tarefas e priorizar atividades. | Frustração, estresse, perda de motivação, queda de desempenho e sofrimento psíquico. |
-| Papéis e responsabilidades mal definidos | Ambiguidade de funções, ordens divergentes e conflito de atribuições. | Retrabalho, insegurança, conflito interpessoal, falhas operacionais e desgaste emocional. |
-| Falhas de liderança e apoio gerencial | Ausência de orientação clara, suporte insuficiente e cobrança sem acompanhamento. | Insegurança, tensão, desorganização do trabalho, aumento de erros e adoecimento ocupacional. |
-| Relações interpessoais conflituosas | Ambiente com comunicação hostil, tensão recorrente e conflitos frequentes. | Estresse, sofrimento psíquico, queda de engajamento, afastamentos e piora do clima organizacional. |
-| Assédio moral, humilhação ou violência psicológica | Exposição a constrangimento, perseguição, intimidação, exposição vexatória ou abuso de poder. | Ansiedade, depressão, sofrimento psíquico importante, afastamento, adoecimento e dano moral organizacional. |
-| Discriminação | Tratamento desigual por raça, sexo, idade, religião, condição de saúde, orientação sexual ou outra característica protegida. | Isolamento, sofrimento psíquico, desmotivação, adoecimento, rotatividade e prejuízo à saúde mental. |
-| Medo de represália | Ambiente onde relatar problemas, falhas ou abusos gera receio de punição ou retaliação. | Silenciamento, subnotificação, manutenção de riscos, ansiedade e perpetuação do problema. |
-| Carga mental elevada | Exigência contínua de atenção, memória, tomada de decisão e processamento simultâneo de informações. | Fadiga cognitiva, erros, lentificação, irritabilidade, estresse e redução do desempenho seguro. |
-| Recursos insuficientes para o trabalho | Falta de pessoal, ferramentas, sistemas, materiais ou suporte operacional adequado. | Sobrecarga, improvisação, retrabalho, frustração, erros e adoecimento ocupacional. |
-| Jornadas prolongadas ou excessivas | Exposição a horas extras frequentes, longas permanências e recuperação insuficiente entre jornadas. | Fadiga acumulada, distúrbios do sono, perda de atenção, irritabilidade, acidentes e esgotamento. |
-| Insegurança organizacional e mudanças mal conduzidas | Alterações frequentes sem comunicação adequada, instabilidade e desorganização do processo de trabalho. | Ansiedade, insegurança, queda de produtividade, conflito, estresse e prejuízo à saúde mental. |
+| Carga mental elevada | Exposição a alto nível de concentração, atenção ou memória | Estresse, fadiga mental |
+| Sobrecarga de trabalho | Pressão ocupacional excessiva | Tensão psicológica, fadiga mental |
+| Ritmo de trabalho excessivo | Exigência de desempenho contínuo | Estresse ocupacional, fadiga mental |
+| Volume elevado de atividades | Sobrecarga de trabalho | Estresse, fadiga mental, redução da concentração |
+| Pausas insuficientes | Recuperação inadequada durante a jornada | Fadiga física e mental |
+| Exigências extremas de carga de trabalho e/ou relações abusivas | Relações interpessoais nocivas: situações de assédio moral e sexual | Transtornos mentais e comportamentais |
+| Ambiente de trabalho pouco colaborativo | Comunicação inadequada entre equipes e Dificuldade de cooperação | Estresse, fadiga mental, Transtornos mentais e comportamentais |
+| Recursos insuficientes para o trabalho | Sobrecarga operacional | Estresse, fadiga |
+| Insegurança organizacional | Desorganização operacional | Estresse, retrabalho, fadiga |
+| Comunicação insuficiente da gestão | Falhas de liderança e apoio gerencial | Estresse, fadiga |
+| Relações interpessoais conflituosas | Ambiente com tensão e falhas de comunicação | Estresse, fadiga, Transtornos mentais e comportamentais |
 
 ---
 

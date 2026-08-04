@@ -5,7 +5,8 @@ import {
   useGoogleWorkspaceMonitoring, 
   OverallSurveyStatus, 
   CompanySurveyStatus, 
-  MonitoringSurveyItem 
+  MonitoringSurveyItem,
+  getPersistedTabulatedState
 } from '../../hooks/useGoogleWorkspaceMonitoring';
 import { googleSurveyImportService, ConexaTabulationOutput } from '../../services/GoogleSurveyImportService';
 import { 
@@ -68,9 +69,12 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({
     refreshSync,
     handleSaveRootFolderId,
     updateCompanySurveyStatus,
+    markCompanyAsTabulated,
     updateTotalEmployees,
     linkCompanyManual
   } = useGoogleWorkspaceMonitoring(companies);
+
+  const [activeDashboardTab, setActiveDashboardTab] = useState<'companies' | 'last_responses'>('companies');
 
   const [showConfigModal, setShowConfigModal] = useState<boolean>(false);
   const [inputFolderId, setInputFolderId] = useState<string>(rootFolderId);
@@ -84,9 +88,18 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [editingTotalValue, setEditingTotalValue] = useState<string>('');
 
-  const hasTabulatedReport = (companyId: string): boolean => {
-    if (!companyId || !assessments || assessments.length === 0) return false;
-    return assessments.some(a => a.companyId === companyId);
+  const hasTabulatedReport = (item: MonitoringSurveyItem | string | undefined | null): boolean => {
+    if (!item) return false;
+    const companyId = typeof item === 'string' ? item : item.companyId;
+    const itemId = typeof item === 'object' ? item.id : item;
+
+    const isPersistedTabulated = 
+      (itemId ? getPersistedTabulatedState(itemId) : false) || 
+      (companyId ? getPersistedTabulatedState(companyId) : false);
+    if (isPersistedTabulated) return true;
+
+    if (!assessments || assessments.length === 0) return false;
+    return assessments.some(a => a.companyId === companyId || a.companyId === itemId);
   };
 
   const handleOpenDrawer = (item: MonitoringSurveyItem) => {
@@ -150,7 +163,14 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({
     setValidationTargetItem(null);
     setSelectedDrawerItem(null);
 
-    const hasReport = hasTabulatedReport(item.companyId);
+    // Persiste imediatamente a alteração para COMPLETED e TABULATED no estado local
+    updateCompanySurveyStatus(item.id, 'COMPLETED');
+    markCompanyAsTabulated(item.id);
+    if (item.companyId) {
+      markCompanyAsTabulated(item.companyId);
+    }
+
+    const hasReport = hasTabulatedReport(item);
 
     if (hasReport) {
       // Se a empresa possui relatórios salvos -> direciona para a aba de Inventário / Relatórios Salvos
@@ -183,7 +203,16 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({
     });
   };
 
-  const renderOverallStatusBadge = (status: OverallSurveyStatus) => {
+  const renderOverallStatusBadge = (status: OverallSurveyStatus, isTabulated = false) => {
+    if (isTabulated) {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-100 border border-emerald-300 text-emerald-900 rounded-full text-[10px] font-black uppercase tracking-wider shadow-sm">
+          <CheckCircle2 size={13} className="text-emerald-600" />
+          🟢 Tabulado
+        </span>
+      );
+    }
+
     switch (status) {
       case 'READY_FOR_TABULATION':
         return (
@@ -309,8 +338,36 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Barra de Filtros */}
-      <div className="bg-white p-4 rounded-3xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-4 items-center justify-between">
+      {/* Navegação por Abas Internas do Monitoramento */}
+      <div className="flex items-center gap-3 border-b border-slate-200 pb-3">
+        <button
+          onClick={() => setActiveDashboardTab('companies')}
+          className={`px-5 py-2.5 rounded-2xl font-black text-xs uppercase tracking-wider transition-all flex items-center gap-2 ${
+            activeDashboardTab === 'companies'
+              ? 'bg-slate-900 text-white shadow-md'
+              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+          }`}
+        >
+          <Building2 size={16} /> Acompanhamento por Empresa ({surveyItems.length})
+        </button>
+
+        <button
+          onClick={() => setActiveDashboardTab('last_responses')}
+          className={`px-5 py-2.5 rounded-2xl font-black text-xs uppercase tracking-wider transition-all flex items-center gap-2 ${
+            activeDashboardTab === 'last_responses'
+              ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
+              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+          }`}
+        >
+          <Clock size={16} /> Última Resposta por Empresa
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        </button>
+      </div>
+
+      {activeDashboardTab === 'companies' && (
+        <>
+          {/* Barra de Filtros */}
+          <div className="bg-white p-4 rounded-3xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-4 items-center justify-between">
         <div className="relative flex-1 w-full">
           <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
@@ -506,7 +563,7 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({
 
                     {/* Situação Geral da Pesquisa Psicossocial */}
                     <td className="py-5 px-6">
-                      {renderOverallStatusBadge(item.overallStatus)}
+                      {renderOverallStatusBadge(item.overallStatus, hasTabulatedReport(item))}
                     </td>
 
                     {/* Ação */}
@@ -520,8 +577,8 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({
                           <ExternalLink size={14} />
                         </button>
 
-                        {item.overallStatus === 'READY_FOR_TABULATION' ? (
-                          hasTabulatedReport(item.companyId) ? (
+                        {item.overallStatus === 'READY_FOR_TABULATION' || hasTabulatedReport(item) ? (
+                          hasTabulatedReport(item) ? (
                             <button
                               onClick={() => handleExecuteTabulation(item)}
                               className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-wider shadow-lg shadow-blue-600/20 transition-all active:scale-95 flex items-center gap-1.5"
@@ -552,6 +609,142 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({
           </table>
         </div>
       </div>
+    </>
+  )}
+
+  {activeDashboardTab === 'last_responses' && (
+    <div className="space-y-6">
+      {/* Tabela Dedicada: Última Resposta por Empresa */}
+      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden p-6 space-y-4">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+          <div>
+            <h3 className="text-lg font-black text-slate-900 uppercase tracking-tight flex items-center gap-2">
+              <Clock size={20} className="text-blue-600" />
+              Última Resposta Recebida por Empresa
+            </h3>
+            <p className="text-xs text-slate-500 font-medium">
+              Acompanhamento cronológico do último carimbo de resposta recepcionado da Planilha Mestra para cada empresa.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 bg-slate-50 px-3.5 py-2 rounded-2xl border border-slate-200 text-xs font-bold text-slate-700">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            Sincronizado com Google Workspace
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                <th className="py-4 px-6">Empresa</th>
+                <th className="py-4 px-6">Data & Hora da Última Resposta (Carimbo)</th>
+                <th className="py-4 px-6">Total Respostas</th>
+                <th className="py-4 px-6">Formulários Recebidos</th>
+                <th className="py-4 px-6">Engajamento %</th>
+                <th className="py-4 px-6 text-right">Status de Coleta</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-xs font-medium text-slate-700">
+              {surveyItems.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-12 text-center text-slate-400 font-bold uppercase tracking-wider">
+                    Nenhuma empresa encontrada.
+                  </td>
+                </tr>
+              ) : (
+                [...surveyItems]
+                  .sort((a, b) => {
+                    const dateA = a.lastResponseDateStr ? new Date(a.lastResponseDateStr).getTime() : 0;
+                    const dateB = b.lastResponseDateStr ? new Date(b.lastResponseDateStr).getTime() : 0;
+                    return dateB - dateA;
+                  })
+                  .map((item) => {
+                    const isTabulated = hasTabulatedReport(item);
+                    const hasResponses = (item.employeeResponses + item.managerResponses) > 0;
+                    return (
+                      <tr key={`last_resp_${item.id}`} className="hover:bg-slate-50/80 transition-colors">
+                        {/* Empresa */}
+                        <td className="py-5 px-6 font-bold text-slate-900">
+                          <div className="space-y-0.5">
+                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
+                              {item.economicGroup}
+                            </span>
+                            <p className="text-sm font-black text-slate-900 uppercase">
+                              {item.companyName}
+                            </p>
+                          </div>
+                        </td>
+
+                        {/* Data/Hora da Última Resposta */}
+                        <td className="py-5 px-6">
+                          {item.lastResponseDateStr ? (
+                            <span className="inline-flex items-center gap-2 px-3 py-1 bg-blue-50 border border-blue-200 text-blue-900 rounded-full text-xs font-mono font-black">
+                              <Clock size={14} className="text-blue-600" />
+                              {item.lastResponseDateStr}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 italic text-xs font-semibold">
+                              Aguardando primeira resposta
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Total Respostas */}
+                        <td className="py-5 px-6">
+                          <span className="font-black text-slate-900 text-sm">
+                            {item.employeeResponses + item.managerResponses}
+                          </span>
+                          <span className="text-[10px] font-bold text-slate-400 ml-1 uppercase">resp.</span>
+                        </td>
+
+                        {/* Detalhamento dos Formulários */}
+                        <td className="py-5 px-6">
+                          <div className="flex items-center gap-2">
+                            <span className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg text-[10px] font-black uppercase">
+                              👥 Colaboradores: {item.employeeResponses}
+                            </span>
+                            <span className="px-2.5 py-1 bg-amber-50 text-amber-800 rounded-lg text-[10px] font-black uppercase">
+                              👔 Gestor: {item.managerResponses}
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* Engajamento */}
+                        <td className="py-5 px-6">
+                          <span className="font-black text-slate-800 text-xs">
+                            {item.participationPercentage}%
+                          </span>
+                        </td>
+
+                        {/* Status de Atividade */}
+                        <td className="py-5 px-6 text-right whitespace-nowrap">
+                          {isTabulated ? (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-100 border border-emerald-300 text-emerald-900 rounded-full text-[10px] font-black uppercase tracking-wider shadow-sm">
+                              <CheckCircle2 size={13} className="text-emerald-600" />
+                              🟢 Tabulado
+                            </span>
+                          ) : hasResponses ? (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-100 border border-emerald-300 text-emerald-900 rounded-full text-[10px] font-black uppercase tracking-wider">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                              🟢 Recebendo Respostas
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-50 border border-amber-200 text-amber-800 rounded-full text-[10px] font-bold uppercase tracking-wider">
+                              🟡 Sem Respostas Ainda
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )}
 
       {/* PAINEL LATERAL (DRAWER) DE DETALHES DA EMPRESA */}
       {selectedDrawerItem && (
