@@ -57,58 +57,65 @@ function isLikelyLikert(col: string, rows: any[]): boolean {
   return total >= 3 && ok / total >= 0.6;
 }
 
-function autoDetect(cols: string[], rows: any[], type: 'employee'|'manager'|'checklist') {
-  const map: Record<string,string> = {};
+function autoDetect(cols: string[], rows: any[], type: 'employee' | 'manager' | 'checklist') {
+  const map: Record<string, string> = {};
+
   if (type === 'checklist') {
+    // Padronização Estrita para Checklist: Colunas A a O (indexes 0 a 14) -> c1 a c15 (Q1 a Q15)
     for (let i = 1; i <= 15; i++) {
-      const f = cols.find(c => {
-        const l = c.toLowerCase();
-        return l.includes('item ' + i) || l.includes('c' + i) || l === String(i) || l === '0'+i;
-      });
-      if (f) map['c'+i] = f;
+      const colIndex = i - 1; // 0 (Coluna A) a 14 (Coluna O)
+      if (cols[colIndex] !== undefined) {
+        map['c' + i] = cols[colIndex];
+      } else {
+        const f = cols.find(c => {
+          const l = c.toLowerCase();
+          return l.includes('item ' + i) || l.includes('c' + i) || l === String(i) || l === '0' + i;
+        });
+        if (f) map['c' + i] = f;
+      }
     }
+    console.log('[ConexaRP] AutoDetect Checklist:', map);
     return map;
   }
-  // 1st pass: pattern matching
-  const used = new Set<string>();
-  for (let i = 1; i <= 15; i++) {
-    const f = cols.find(c => {
-      if (used.has(c)) return false;
-      const l = c.toLowerCase().trim();
-      return l === String(i) || l === '0'+i || l === i+'.' ||
-        l === 'q'+i || l === 'p'+i ||
-        l.includes('item '+i) || l.includes('item'+i) ||
-        l.includes('pergunta '+i) || l.includes('pergunta'+i) ||
-        l.includes('questão '+i) || l.includes('questao '+i);
-    });
-    if (f) { map[String(i)] = f; used.add(f); }
+
+  // Padronização Estrita para Colaboradores e Gestores:
+  // Coluna B (index 1, 2ª coluna) = Setor ("Qual seu setor?")
+  if (cols[1] !== undefined) {
+    map['sector'] = cols[1];
+  } else {
+    const SECTOR_P = ['setor', 'departamento', 'área', 'area', 'seção', 'secao', 'dept', 'equipe'];
+    const sCol = cols.find(c => { const l = c.toLowerCase().trim(); return SECTOR_P.some(p => l.includes(p)); });
+    if (sCol) map['sector'] = sCol;
   }
-  // 2nd pass: heuristic for Likert scale columns
-  const found = Object.keys(map).filter(k => !isNaN(Number(k))).length;
-  if (found < 8) {
-    const likertCols = cols.filter(c => !used.has(c) && isLikelyLikert(c, rows));
-    console.log('[ConexaRP] Heuristic Likert cols:', likertCols);
-    let qi = 1;
-    for (const c of likertCols) {
-      while (map[String(qi)] && qi <= 15) qi++;
-      if (qi > 15) break;
-      map[String(qi)] = c; used.add(c); qi++;
+
+  // Coluna D (index 3, 4ª coluna) = Unidade ("Qual sua Unidade?...")
+  if (cols[3] !== undefined) {
+    map['unit'] = cols[3];
+  } else {
+    const UNIT_P = ['unidade', 'filial', 'regional', 'loja', 'unid', 'un.'];
+    const uCol = cols.find(c => { const l = c.toLowerCase().trim(); return UNIT_P.some(p => l.includes(p)); });
+    if (uCol) map['unit'] = uCol;
+  }
+
+  // Colunas E a S (indexes 4 a 18, 5ª a 19ª coluna) = Questões 1 a 15 em ordem exata
+  for (let i = 1; i <= 15; i++) {
+    const colIndex = i + 3; // 4 (Coluna E) a 18 (Coluna S)
+    if (cols[colIndex] !== undefined) {
+      map[String(i)] = cols[colIndex];
+    } else {
+      const f = cols.find(c => {
+        const l = c.toLowerCase().trim();
+        return l === String(i) || l === '0' + i || l === i + '.' ||
+          l === 'q' + i || l === 'p' + i ||
+          l.includes('item ' + i) || l.includes('item' + i) ||
+          l.includes('pergunta ' + i) || l.includes('pergunta' + i) ||
+          l.includes('questão ' + i) || l.includes('questao ' + i);
+      });
+      if (f) map[String(i)] = f;
     }
   }
-  // Sector detection
-  const UNIT_P = ['unidade','filial','regional','loja','unid','un.'];
-  const SECTOR_P = ['setor','departamento','área','area','seção','secao','dept','equipe','turno','cargo','função','funcao','ghe','ges','grupo','posto','célula','celula','divisão','divisao'];
-  
-  const uCol = cols.find(c => { const l=c.toLowerCase().trim(); return UNIT_P.some(p=>l.includes(p)); });
-  if (uCol) map['unit'] = uCol;
 
-  const sCol = cols.find(c => { 
-    const l=c.toLowerCase().trim(); 
-    return SECTOR_P.some(p=>l.includes(p)) && c !== uCol; 
-  });
-  if (sCol) map['sector'] = sCol;
-
-  console.log('[ConexaRP] autoDetect result:', map);
+  console.log(`[ConexaRP] AutoDetect ${type}:`, map);
   return map;
 }
 

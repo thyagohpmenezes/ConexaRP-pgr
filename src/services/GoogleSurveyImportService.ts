@@ -29,37 +29,43 @@ export class GoogleSurveyImportService {
   public autoDetectColumns(headers: string[], type: 'employee' | 'manager' | 'checklist'): Record<string, string> {
     const mapping: Record<string, string> = {};
 
-    headers.forEach((h) => {
-      const upper = h.toUpperCase().trim();
-      
-      if (upper.includes('UNIDADE') || upper.includes('FILIAL') || upper.includes('PLANTA') || upper.includes('LOJA')) {
-        mapping['unit'] = h;
-      } else if (upper.includes('SETOR') || upper.includes('DEPARTAMENTO') || upper.includes('AREA') || upper.includes('ÁREA') || upper.includes('EQUIPE')) {
-        mapping['sector'] = h;
-      } else if (upper.includes('FUNÇÃO') || upper.includes('FUNCAO') || upper.includes('CARGO') || upper.includes('OCUPAÇÃO') || upper.includes('OCUPACAO')) {
-        mapping['role'] = h;
+    if (type === 'checklist') {
+      // Padronização Estrita Checklist: Colunas A a O (indexes 0 a 14) -> Q1 a Q15 / c1 a c15
+      for (let i = 1; i <= 15; i++) {
+        const idx = i - 1;
+        if (headers[idx] !== undefined) {
+          mapping[String(i)] = headers[idx];
+          mapping['c' + i] = headers[idx];
+        }
       }
-    });
+      return mapping;
+    }
 
-    // Mapeamento automático de 15 questões psicossociais
-    let questionIndex = 1;
-    headers.forEach((h) => {
-      const upper = h.toUpperCase().trim();
-      if (
-        upper.includes('UNIDADE') || 
-        upper.includes('SETOR') || 
-        upper.includes('CARGO') || 
-        upper.includes('FUNÇÃO') || 
-        upper.includes('CARIMBO') || 
-        upper.includes('TIMESTAMP')
-      ) {
-        return;
+    // Padronização Estrita para Colaboradores e Gestores:
+    // Coluna B (index 1) = Setor
+    if (headers[1] !== undefined) mapping['sector'] = headers[1];
+    // Coluna C (index 2) = Função/Cargo
+    if (headers[2] !== undefined) mapping['role'] = headers[2];
+    // Coluna D (index 3) = Unidade
+    if (headers[3] !== undefined) mapping['unit'] = headers[3];
+
+    // Colunas E a S (indexes 4 a 18) = Questões 1 a 15 em ordem exata
+    for (let i = 1; i <= 15; i++) {
+      const idx = i + 3; // 4 (E) a 18 (S)
+      if (headers[idx] !== undefined) {
+        mapping[String(i)] = headers[idx];
       }
-      if (questionIndex <= 15) {
-        mapping[String(questionIndex)] = h;
-        questionIndex++;
-      }
-    });
+    }
+
+    // Fallbacks de segurança se os cabeçalhos variarem ou faltarem
+    if (!mapping['unit']) {
+      const u = headers.find(h => h.toUpperCase().includes('UNIDADE') || h.toUpperCase().includes('FILIAL'));
+      if (u) mapping['unit'] = u;
+    }
+    if (!mapping['sector']) {
+      const s = headers.find(h => h.toUpperCase().includes('SETOR') || h.toUpperCase().includes('DEPARTAMENTO'));
+      if (s) mapping['sector'] = s;
+    }
 
     return mapping;
   }
