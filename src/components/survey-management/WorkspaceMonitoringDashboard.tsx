@@ -88,18 +88,15 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [editingTotalValue, setEditingTotalValue] = useState<string>('');
 
-  const hasTabulatedReport = (item: MonitoringSurveyItem | string | undefined | null): boolean => {
-    if (!item) return false;
+  const hasSavedReport = (item: MonitoringSurveyItem | string | undefined | null): boolean => {
+    if (!item || !assessments || assessments.length === 0) return false;
     const companyId = typeof item === 'string' ? item : item.companyId;
     const itemId = typeof item === 'object' ? item.id : item;
 
-    const isPersistedTabulated = 
-      (itemId ? getPersistedTabulatedState(itemId) : false) || 
-      (companyId ? getPersistedTabulatedState(companyId) : false);
-    if (isPersistedTabulated) return true;
-
-    if (!assessments || assessments.length === 0) return false;
-    return assessments.some(a => a.companyId === companyId || a.companyId === itemId);
+    return assessments.some(a => 
+      (companyId && (a.companyId === companyId || a.companyId === itemId)) || 
+      (itemId && (a.companyId === itemId || a.companyId === companyId))
+    );
   };
 
   const handleOpenDrawer = (item: MonitoringSurveyItem) => {
@@ -163,26 +160,26 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({
     setValidationTargetItem(null);
     setSelectedDrawerItem(null);
 
-    // Persiste imediatamente a alteração para COMPLETED e TABULATED no estado local
-    updateCompanySurveyStatus(item.id, 'COMPLETED');
-    markCompanyAsTabulated(item.id);
-    if (item.companyId) {
-      markCompanyAsTabulated(item.companyId);
-    }
-
-    const hasReport = hasTabulatedReport(item);
+    const targetId = item.companyId || item.id;
+    const hasReport = hasSavedReport(item);
 
     if (hasReport) {
-      // Se a empresa possui relatórios salvos -> direciona para a aba de Inventário / Relatórios Salvos
+      // Se a empresa possui relatórios salvos no sistema -> direciona para a aba de Inventário / Relatórios Salvos
       if (onNavigateToInventory) {
-        onNavigateToInventory(item.companyId);
+        onNavigateToInventory(targetId);
       } else if (onNavigateToAssessments) {
-        onNavigateToAssessments(item.companyId);
+        onNavigateToAssessments(targetId);
       }
     } else {
-      // Se não houver relatórios salvos -> direciona para a aba de Avaliação para tabular
+      // Se não houver relatórios salvos -> direciona para a aba de Avaliação para tabular & salvar
+      updateCompanySurveyStatus(item.id, 'COMPLETED');
+      markCompanyAsTabulated(item.id);
+      if (item.companyId) {
+        markCompanyAsTabulated(item.companyId);
+      }
+
       if (onNavigateToAssessments) {
-        onNavigateToAssessments(item.companyId);
+        onNavigateToAssessments(targetId);
       } else {
         setActiveTabulatingItem(item);
         const output = googleSurveyImportService.tabulateMonitoringSurvey(item);
@@ -203,8 +200,8 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({
     });
   };
 
-  const renderOverallStatusBadge = (status: OverallSurveyStatus, isTabulated = false) => {
-    if (isTabulated) {
+  const renderOverallStatusBadge = (status: OverallSurveyStatus, isSavedReport = false) => {
+    if (isSavedReport) {
       return (
         <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-100 border border-emerald-300 text-emerald-900 rounded-full text-[10px] font-black uppercase tracking-wider shadow-sm">
           <CheckCircle2 size={13} className="text-emerald-600" />
@@ -563,7 +560,7 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({
 
                     {/* Situação Geral da Pesquisa Psicossocial */}
                     <td className="py-5 px-6">
-                      {renderOverallStatusBadge(item.overallStatus, hasTabulatedReport(item))}
+                      {renderOverallStatusBadge(item.overallStatus, hasSavedReport(item))}
                     </td>
 
                     {/* Ação */}
@@ -577,24 +574,22 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({
                           <ExternalLink size={14} />
                         </button>
 
-                        {item.overallStatus === 'READY_FOR_TABULATION' || hasTabulatedReport(item) ? (
-                          hasTabulatedReport(item) ? (
-                            <button
-                              onClick={() => handleExecuteTabulation(item)}
-                              className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-wider shadow-lg shadow-blue-600/20 transition-all active:scale-95 flex items-center gap-1.5"
-                              title="Empresa possui relatórios salvos. Clique para visualizar no Inventário"
-                            >
-                              <BarChart3 size={14} /> Visualizar Relatório
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => handleExecuteTabulation(item)}
-                              className="bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-2 rounded-xl font-black text-[10px] uppercase tracking-wider shadow-lg shadow-emerald-600/20 transition-all active:scale-95 flex items-center gap-1.5"
-                              title="Validar pesquisas e direcionar para Avaliações (GRO/PGR)"
-                            >
-                              <FileCheck2 size={14} /> Validar & Tabular
-                            </button>
-                          )
+                        {hasSavedReport(item) ? (
+                          <button
+                            onClick={() => handleExecuteTabulation(item)}
+                            className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-wider shadow-lg shadow-blue-600/20 transition-all active:scale-95 flex items-center gap-1.5"
+                            title="Empresa possui relatórios salvos. Clique para visualizar no Inventário"
+                          >
+                            <BarChart3 size={14} /> Visualizar Relatório
+                          </button>
+                        ) : item.overallStatus === 'READY_FOR_TABULATION' || item.companySurveyStatus === 'COMPLETED' ? (
+                          <button
+                            onClick={() => handleExecuteTabulation(item)}
+                            className="bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-2 rounded-xl font-black text-[10px] uppercase tracking-wider shadow-lg shadow-emerald-600/20 transition-all active:scale-95 flex items-center gap-1.5"
+                            title="Validar pesquisas e direcionar para Avaliações (GRO/PGR)"
+                          >
+                            <FileCheck2 size={14} /> Validar & Tabular
+                          </button>
                         ) : (
                           <span className="text-[10px] font-bold text-slate-400 uppercase italic">
                             Aguardando
@@ -660,7 +655,7 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({
                     return dateB - dateA;
                   })
                   .map((item) => {
-                    const isTabulated = hasTabulatedReport(item);
+                    const isTabulated = hasSavedReport(item);
                     const hasResponses = (item.employeeResponses + item.managerResponses) > 0;
                     return (
                       <tr key={`last_resp_${item.id}`} className="hover:bg-slate-50/80 transition-colors">
@@ -894,10 +889,12 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({
               {/* Situação Geral */}
               <div className="p-5 bg-slate-900 text-white rounded-2xl space-y-3">
                 <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Situação Geral Triangulada</span>
-                <div>{renderOverallStatusBadge(selectedDrawerItem.overallStatus)}</div>
+                <div>{renderOverallStatusBadge(selectedDrawerItem.overallStatus, hasSavedReport(selectedDrawerItem))}</div>
                 <p className="text-xs text-slate-300 font-medium">
-                  {selectedDrawerItem.overallStatus === 'READY_FOR_TABULATION' 
-                    ? 'A empresa atingiu todos os pré-requisitos da Metodologia RP (70%+ colaboradores, gestor preenchido e pesquisa da empresa concluída) e está totalmente apta para tabulação!'
+                  {hasSavedReport(selectedDrawerItem) 
+                    ? 'A empresa possui pesquisa psicossocial tabulada com relatórios gerados no Inventário GRO/PGR.'
+                    : selectedDrawerItem.overallStatus === 'READY_FOR_TABULATION' || selectedDrawerItem.companySurveyStatus === 'COMPLETED'
+                    ? 'A empresa atingiu os pré-requisitos e está totalmente apta para a validação e tabulação psicossocial dos riscos.'
                     : 'Aguardando o preenchimento de todas as 3 fontes metodológicas para liberar a tabulação psicossocial dos riscos.'}
                 </p>
               </div>
@@ -905,24 +902,22 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({
 
             {/* Rodapé de Ações do Drawer */}
             <div className="p-6 bg-slate-50 border-t border-slate-200">
-              {selectedDrawerItem.overallStatus === 'READY_FOR_TABULATION' ? (
-                hasTabulatedReport(selectedDrawerItem.companyId) ? (
-                  <button
-                    onClick={() => handleExecuteTabulation(selectedDrawerItem)}
-                    className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3.5 rounded-2xl font-black text-xs uppercase tracking-wider shadow-lg shadow-blue-600/20 transition-all active:scale-95 flex items-center justify-center gap-2"
-                  >
-                    <BarChart3 size={16} /> Visualizar Relatório (Inventário GRO/PGR)
-                    <ArrowRight size={16} />
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => handleExecuteTabulation(selectedDrawerItem)}
-                    className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-3.5 rounded-2xl font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-600/20 transition-all active:scale-95 flex items-center justify-center gap-2"
-                  >
-                    <FileCheck2 size={16} /> Validar & Direcionar para Avaliação (GRO/PGR)
-                    <ArrowRight size={16} />
-                  </button>
-                )
+              {hasSavedReport(selectedDrawerItem) ? (
+                <button
+                  onClick={() => handleExecuteTabulation(selectedDrawerItem)}
+                  className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3.5 rounded-2xl font-black text-xs uppercase tracking-wider shadow-lg shadow-blue-600/20 transition-all active:scale-95 flex items-center justify-center gap-2"
+                >
+                  <BarChart3 size={16} /> Visualizar Relatório (Inventário GRO/PGR)
+                  <ArrowRight size={16} />
+                </button>
+              ) : selectedDrawerItem.overallStatus === 'READY_FOR_TABULATION' || selectedDrawerItem.companySurveyStatus === 'COMPLETED' ? (
+                <button
+                  onClick={() => handleExecuteTabulation(selectedDrawerItem)}
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-3.5 rounded-2xl font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-600/20 transition-all active:scale-95 flex items-center justify-center gap-2"
+                >
+                  <FileCheck2 size={16} /> Validar & Direcionar para Avaliação (GRO/PGR)
+                  <ArrowRight size={16} />
+                </button>
               ) : (
                 <button
                   disabled
