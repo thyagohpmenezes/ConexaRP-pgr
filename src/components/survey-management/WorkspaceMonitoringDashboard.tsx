@@ -46,6 +46,7 @@ interface Props {
   companies?: Company[];
   assessments?: any[];
   onCreateCompany?: (newCompany: Omit<Company, 'id'>) => void;
+  onUpdateCompany?: (id: string, updates: Partial<Company>) => Promise<any>;
   onNavigateToAssessments?: (companyId?: string) => void;
   onNavigateToInventory?: (companyId?: string) => void;
 }
@@ -54,6 +55,7 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({
   companies = [],
   assessments = [],
   onCreateCompany,
+  onUpdateCompany,
   onNavigateToAssessments,
   onNavigateToInventory
 }) => {
@@ -74,7 +76,7 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({
     markCompanyAsTabulated,
     updateTotalEmployees,
     linkCompanyManual
-  } = useGoogleWorkspaceMonitoring(companies);
+  } = useGoogleWorkspaceMonitoring(companies, onUpdateCompany);
 
   const [activeDashboardTab, setActiveDashboardTab] = useState<'companies' | 'last_responses'>('companies');
 
@@ -89,6 +91,22 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({
 
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [editingTotalValue, setEditingTotalValue] = useState<string>('');
+
+  const [syncToastMessage, setSyncToastMessage] = useState<string | null>(null);
+
+  const showSyncToast = (msg: string) => {
+    setSyncToastMessage(msg);
+    setTimeout(() => setSyncToastMessage(null), 3500);
+  };
+
+  const handleSyncNow = async () => {
+    try {
+      await refreshSync();
+      showSyncToast('✅ Dados e links atualizados via Planilha Mestra!');
+    } catch (err: any) {
+      showSyncToast('❌ Erro durante a sincronização com a Planilha Mestra.');
+    }
+  };
 
   const hasSavedReport = (item: MonitoringSurveyItem | string | undefined | null): boolean => {
     if (!item || !assessments || assessments.length === 0) return false;
@@ -217,13 +235,27 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({
     });
   };
 
+  const getCompanyContacts = (item: MonitoringSurveyItem) => {
+    const matched = companies.find(c => c.id === item.companyId || c.name.toUpperCase().trim() === item.companyName.toUpperCase().trim());
+    
+    const phone = item.phone || matched?.phone || '';
+    const emails = [
+      item.email1 || matched?.email1,
+      item.email2 || matched?.email2,
+      item.email3 || matched?.email3
+    ].filter((e): e is string => Boolean(e && e.trim()));
+
+    return { phone, emails, matchedCompany: matched };
+  };
+
   const generateReminderMessage = (item: MonitoringSurveyItem): string => {
-    const companyName = item.companyName || 'Sua Empresa';
+    const { matchedCompany } = getCompanyContacts(item);
+    const companyName = item.companyName || matchedCompany?.name || 'Sua Empresa';
     const respColab = item.employeeResponses || 0;
     const respGestor = item.managerResponses || 0;
     const progresso = `${item.participationPercentage || 0}%`;
-    const linkColab = item.employeeFormUrl || '[INSERIR_LINK_SISTEMA_COLAB]';
-    const linkGestor = item.managerFormUrl || '[INSERIR_LINK_SISTEMA_GESTOR]';
+    const linkColab = item.employeeFormUrl || matchedCompany?.employeeSurveyUrl || matchedCompany?.collabForm?.formUrl || '[LINK_PESQUISA_COLABORADOR]';
+    const linkGestor = item.managerFormUrl || matchedCompany?.managerSurveyUrl || matchedCompany?.managerForm?.formUrl || '[LINK_PESQUISA_GESTOR]';
 
     return `Olá, tudo bem?
 Passando para compartilhar como está o andamento das Pesquisas de Avaliação de Riscos Psicossociais na sua empresa.
@@ -254,16 +286,34 @@ Atenciosamente,`;
 
   const handleOpenWhatsApp = (item: MonitoringSurveyItem, e: React.MouseEvent) => {
     e.stopPropagation();
+    const { phone } = getCompanyContacts(item);
+    const cleanPhone = phone.replace(/\D/g, '');
     const message = generateReminderMessage(item);
-    const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
+
+    let url = '';
+    if (cleanPhone) {
+      const fullPhone = (cleanPhone.length === 10 || cleanPhone.length === 11) ? `55${cleanPhone}` : cleanPhone;
+      url = `https://wa.me/${fullPhone}?text=${encodeURIComponent(message)}`;
+    } else {
+      url = `https://wa.me/?text=${encodeURIComponent(message)}`;
+    }
+
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   const handleOpenEmail = (item: MonitoringSurveyItem, e: React.MouseEvent) => {
     e.stopPropagation();
+    const { emails } = getCompanyContacts(item);
+    const recipientString = emails.join(',');
     const message = generateReminderMessage(item);
     const subject = `Andamento das Pesquisas Psicossociais - ${item.companyName}`;
-    const url = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`;
+
+    if (emails.length === 0) {
+      showSyncToast(`⚠️ Nenhum e-mail cadastrado para ${item.companyName}.`);
+      return;
+    }
+
+    const url = `mailto:${recipientString}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`;
     window.location.href = url;
   };
 
@@ -341,11 +391,11 @@ Atenciosamente,`;
           </button>
           
           <button
-            onClick={refreshSync}
+            onClick={handleSyncNow}
             disabled={loading}
             className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-wider shadow-lg shadow-blue-600/20 transition-all active:scale-95 flex items-center gap-2"
           >
-            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+            <RefreshCw size={16} className={loading ? 'animate-spin text-white' : ''} />
             {loading ? 'Sincronizando...' : 'Sincronizar Agora'}
           </button>
         </div>
@@ -1018,6 +1068,14 @@ Atenciosamente,`;
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Floating Toast Notification de Sincronização Mestra */}
+      {syncToastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 bg-slate-900/90 text-white text-xs font-bold px-4 py-3 rounded-2xl shadow-2xl backdrop-blur-md border border-slate-700 flex items-center gap-2.5 animate-in fade-in slide-in-from-bottom-3 duration-200">
+           <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+           <span>{syncToastMessage}</span>
         </div>
       )}
     </div>

@@ -65,6 +65,12 @@ export interface MasterSheetRow {
   p6?: number; p7?: number; p8?: number; p9?: number; p10?: number;
   p11?: number; p12?: number; p13?: number; p14?: number; p15?: number;
   respostas: Record<string, any>;
+  email1?: string;
+  email2?: string;
+  email3?: string;
+  phone?: string;
+  employeeSurveyUrl?: string;
+  managerSurveyUrl?: string;
 }
 
 /**
@@ -79,6 +85,12 @@ export interface MasterCompanyMonitoring {
   totalEmployees?: number;
   percentual?: number;
   lastResponseDate?: string;
+  email1?: string;
+  email2?: string;
+  email3?: string;
+  phone?: string;
+  employeeSurveyUrl?: string;
+  managerSurveyUrl?: string;
   collabRows: MasterSheetRow[];
   managerRows: MasterSheetRow[];
 }
@@ -144,6 +156,12 @@ export interface Company {
   employeeCount: number;
   collabForm?: SurveyForm;
   managerForm?: SurveyForm;
+  email1?: string;
+  email2?: string;
+  email3?: string;
+  phone?: string;
+  managerSurveyUrl?: string;
+  employeeSurveyUrl?: string;
 }
 
 export interface CollectionSourceConfig {

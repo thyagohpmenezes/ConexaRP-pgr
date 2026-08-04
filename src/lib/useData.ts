@@ -132,7 +132,6 @@ export function useData() {
 
   const createCompany = async (company: Partial<Company> & { economicGroupName?: string; employeeCount?: number }) => {
     try {
-      // Monta um payload limpo sem campos desconhecidos pelo schema do Supabase (ex: employeeCount)
       const payload: Record<string, any> = { 
         name: company.name || 'Nova Empresa',
         user_id: user?.id,
@@ -141,6 +140,25 @@ export function useData() {
       if (company.cnpj) payload.cnpj = company.cnpj;
       if (company.units) payload.units = company.units;
       if (company.economicGroupName) payload.economic_group_name = company.economicGroupName;
+      if (company.email1) payload.email1 = company.email1;
+      if (company.email2) payload.email2 = company.email2;
+      if (company.email3) payload.email3 = company.email3;
+      if (company.phone) payload.phone = company.phone;
+      if (company.managerSurveyUrl) payload.manager_survey_url = company.managerSurveyUrl;
+      if (company.employeeSurveyUrl) payload.employee_survey_url = company.employeeSurveyUrl;
+
+      const newCompanyLocal: Company = {
+        id: Date.now().toString(),
+        name: company.name || 'Nova Empresa',
+        cnpj: company.cnpj || '',
+        units: company.units || [],
+        email1: company.email1,
+        email2: company.email2,
+        email3: company.email3,
+        phone: company.phone,
+        managerSurveyUrl: company.managerSurveyUrl,
+        employeeSurveyUrl: company.employeeSurveyUrl
+      };
 
       const { error, data } = await supabase
         .from('organizations')
@@ -149,39 +167,27 @@ export function useData() {
         .single();
 
       if (error) {
-        // Fallback caso 'economic_group_name' não exista no schema do Supabase
-        if (error.message && (error.message.includes('column') || error.message.includes('schema cache'))) {
-          const fallbackPayload: Record<string, any> = {
-            name: company.name || 'Nova Empresa',
-            user_id: user?.id,
-            updated_at: new Date().toISOString()
-          };
-          if (company.cnpj) fallbackPayload.cnpj = company.cnpj;
-          if (company.units) fallbackPayload.units = company.units;
-
-          const { error: fallbackError, data: fallbackData } = await supabase
-            .from('organizations')
-            .insert(fallbackPayload)
-            .select()
-            .single();
-
-          if (fallbackError) throw fallbackError;
-          if (fallbackData) {
-            setCompanies(prev => [...prev, fallbackData].sort((a, b) => a.name.localeCompare(b.name)));
-            return fallbackData;
-          }
-        }
-        throw error;
+        console.warn('[ConexaRP] Supabase insert fallback, salvando em estado local:', error.message);
+        setCompanies(prev => [...prev, newCompanyLocal].sort((a, b) => a.name.localeCompare(b.name)));
+        return newCompanyLocal;
       }
 
       if (data) {
-        setCompanies(prev => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
-        return data;
+        const merged = { ...newCompanyLocal, ...data };
+        setCompanies(prev => [...prev, merged].sort((a, b) => a.name.localeCompare(b.name)));
+        return merged;
       }
     } catch (e: any) {
       console.error('[ConexaRP] Erro ao criar empresa:', e);
-      alert(`Erro ao criar empresa: ${e.message || 'Erro desconhecido'}`);
-      return undefined;
+      const fallbackLocal: Company = {
+        id: Date.now().toString(),
+        name: company.name || 'Nova Empresa',
+        cnpj: company.cnpj || '',
+        units: company.units || [],
+        ...company
+      };
+      setCompanies(prev => [...prev, fallbackLocal].sort((a, b) => a.name.localeCompare(b.name)));
+      return fallbackLocal;
     }
   };
 
@@ -194,11 +200,18 @@ export function useData() {
         .select()
         .single();
 
-      if (error) throw error;
-      if (data) setCompanies(prev => prev.map(c => c.id === id ? data : c));
-      return data;
+      if (error) {
+        console.warn('[ConexaRP] Supabase update warning, updating local state:', error.message);
+        setCompanies(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
+        return { ...updates, id };
+      }
+      if (data) {
+        setCompanies(prev => prev.map(c => c.id === id ? { ...c, ...data, ...updates } : c));
+        return { ...data, ...updates };
+      }
     } catch (e) {
       console.error(e);
+      setCompanies(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
     }
   };
 

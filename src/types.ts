@@ -115,6 +115,14 @@ export interface Company {
   name: string;
   cnpj: string;
   units: Unit[];
+  email1?: string;
+  email2?: string;
+  email3?: string;
+  phone?: string;
+  managerSurveyUrl?: string;
+  employeeSurveyUrl?: string;
+  collabForm?: any;
+  managerForm?: any;
 }
 
 export interface Unit {

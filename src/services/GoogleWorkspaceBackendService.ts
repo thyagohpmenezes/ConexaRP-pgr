@@ -138,9 +138,14 @@ export class GoogleWorkspaceBackendService {
           const age = Date.now() - parseInt(cachedTimeStr, 10);
           if (age < CACHE_TTL_MS) {
             const parsed = JSON.parse(cachedStr) as MasterSyncResult;
-            if (parsed && parsed.success && (parsed.companiesCount > 0 || (parsed.rows && parsed.rows.length > 0))) {
+            const hasContactInfo = parsed.rows?.some((r: any) => r.email1 || r.phone || r.employeeSurveyUrl || r.managerSurveyUrl) ||
+              Object.values(parsed.companiesSummary || {}).some((c: any) => c.email1 || c.phone || c.employeeSurveyUrl || c.managerSurveyUrl);
+
+            if (parsed && parsed.success && (parsed.companiesCount > 0 || (parsed.rows && parsed.rows.length > 0)) && hasContactInfo) {
               console.log(`[GoogleWorkspaceBackendService] Utilizando dados em cache local SWR (${Math.round(age / 1000)}s de idade).`);
               return parsed;
+            } else {
+              console.log('[GoogleWorkspaceBackendService] Cache SWR legado sem colunas de contato. Invalidando cache para buscar dados atualizados do Google Sheets...');
             }
           }
         }
@@ -206,6 +211,41 @@ export class GoogleWorkspaceBackendService {
         throw new Error(data?.message || data?.details || 'Retorno inválido do servidor na sincronização da Planilha Mestra.');
       }
 
+      // Enriquece o retorno com a leitura direta via GViz CSV do Google Sheets ("Painel")
+      try {
+        const csvContacts = await this.fetchDirectSheetCsv(sheetId);
+        if (data.companiesSummary) {
+          Object.keys(data.companiesSummary).forEach(key => {
+            const csvMatch = csvContacts[key.toUpperCase()] || csvContacts[key.toUpperCase().trim()];
+            if (csvMatch) {
+              if (csvMatch.email1) data.companiesSummary[key].email1 = csvMatch.email1;
+              if (csvMatch.email2) data.companiesSummary[key].email2 = csvMatch.email2;
+              if (csvMatch.email3) data.companiesSummary[key].email3 = csvMatch.email3;
+              if (csvMatch.phone) data.companiesSummary[key].phone = csvMatch.phone;
+              if (csvMatch.employeeSurveyUrl) data.companiesSummary[key].employeeSurveyUrl = csvMatch.employeeSurveyUrl;
+              if (csvMatch.managerSurveyUrl) data.companiesSummary[key].managerSurveyUrl = csvMatch.managerSurveyUrl;
+            }
+          });
+        }
+        if (data.rows && Array.isArray(data.rows)) {
+          data.rows.forEach((r: any) => {
+            if (r.empresa) {
+              const csvMatch = csvContacts[r.empresa.toUpperCase().trim()];
+              if (csvMatch) {
+                if (csvMatch.email1) r.email1 = csvMatch.email1;
+                if (csvMatch.email2) r.email2 = csvMatch.email2;
+                if (csvMatch.email3) r.email3 = csvMatch.email3;
+                if (csvMatch.phone) r.phone = csvMatch.phone;
+                if (csvMatch.employeeSurveyUrl) r.employeeSurveyUrl = csvMatch.employeeSurveyUrl;
+                if (csvMatch.managerSurveyUrl) r.managerSurveyUrl = csvMatch.managerSurveyUrl;
+              }
+            }
+          });
+        }
+      } catch (csvErr) {
+        console.warn('[GoogleWorkspaceBackendService] Erro ao enriquecer com CSV direto:', csvErr);
+      }
+
       // Salva em cache local SWR se o retorno tiver empresas válidas
       if (!quickTest && data.success) {
         try {
@@ -229,6 +269,78 @@ export class GoogleWorkspaceBackendService {
         throw new Error('A requisição à Edge Function excedeu o tempo limite.');
       }
       throw err;
+    }
+  }
+
+  /**
+   * Lê diretamente o arquivo exportado CSV/GViz da Planilha Mestra ("Painel")
+   * para enriquecer e garantir 100% de acesso às colunas G a L (E-mails, WhatsApp e Links de Pesquisa)
+   */
+  async fetchDirectSheetCsv(sheetId: string): Promise<Record<string, any>> {
+    try {
+      const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=Painel`;
+      const res = await fetch(url);
+      if (!res.ok) return {};
+      const csvText = await res.text();
+      const lines = csvText.split('\n').map(l => l.trim()).filter(Boolean);
+      if (lines.length < 2) return {};
+
+      const result: Record<string, any> = {};
+
+      const parseCsvLine = (lineStr: string): string[] => {
+        const row: string[] = [];
+        let cur = '';
+        let inQuotes = false;
+        for (let i = 0; i < lineStr.length; i++) {
+          const char = lineStr[i];
+          if (char === '"') {
+            inQuotes = !inQuotes;
+          } else if (char === ',' && !inQuotes) {
+            row.push(cur.trim().replace(/^"|"$/g, ''));
+            cur = '';
+          } else {
+            cur += char;
+          }
+        }
+        row.push(cur.trim().replace(/^"|"$/g, ''));
+        return row;
+      };
+
+      const cleanCellStr = (val: any): string | undefined => {
+        if (val === undefined || val === null) return undefined;
+        const str = String(val).trim();
+        if (str === '' || str === '-' || str.toUpperCase() === 'N/A' || str.includes('#REF!') || str.includes('#N/A')) {
+          return undefined;
+        }
+        return str;
+      };
+
+      for (let i = 1; i < lines.length; i++) {
+        const cols = parseCsvLine(lines[i]);
+        const empresaName = cleanCellStr(cols[0]);
+        if (!empresaName || empresaName.toUpperCase() === 'EMPRESA' || empresaName.toUpperCase().includes('TOTAL')) continue;
+
+        const email1 = cleanCellStr(cols[6]);
+        const email2 = cleanCellStr(cols[7]);
+        const email3 = cleanCellStr(cols[8]);
+        const phone = cleanCellStr(cols[9]);
+        const employeeSurveyUrl = cleanCellStr(cols[10]);
+        const managerSurveyUrl = cleanCellStr(cols[11]);
+
+        result[empresaName.toUpperCase()] = {
+          email1,
+          email2,
+          email3,
+          phone,
+          employeeSurveyUrl,
+          managerSurveyUrl
+        };
+      }
+
+      return result;
+    } catch (e) {
+      console.warn('[GoogleWorkspaceBackendService] Erro ao ler CSV direto do Google Sheets:', e);
+      return {};
     }
   }
 

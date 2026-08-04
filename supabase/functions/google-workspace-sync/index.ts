@@ -198,11 +198,11 @@ Deno.serve(async (req: Request) => {
     }
 
     // -------------------------------------------------------------
-    // AÇÃO: Leitura Principal do Intervalo A2:F
+    // AÇÃO: Leitura Principal do Intervalo A2:Z (Mapeamento de Indicadores, Contatos e Links)
     // -------------------------------------------------------------
-    console.log(`[Google Sheets Sync] Lendo aba mestra: "${activeSheetTitle}" a partir da linha 2 (A2:F)`);
+    console.log(`[Google Sheets Sync] Lendo aba mestra: "${activeSheetTitle}" a partir da linha 2 (A2:Z)`);
 
-    const range = encodeURIComponent(`'${activeSheetTitle}'!A2:F2000`);
+    const range = encodeURIComponent(`'${activeSheetTitle}'!A2:Z2000`);
     const valuesUrl = `https://sheets.googleapis.com/v4/spreadsheets/${masterSheetId}/values/${range}?majorDimension=ROWS`;
     const valuesRes = await fetch(valuesUrl, {
       headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" }
@@ -212,10 +212,20 @@ Deno.serve(async (req: Request) => {
     if (!valuesRes.ok) {
       return new Response(JSON.stringify({
         success: false,
-        message: `Erro ao ler intervalo A2:F da aba '${activeSheetTitle}'.`,
+        message: `Erro ao ler intervalo A2:Z da aba '${activeSheetTitle}'.`,
         details: valuesJson?.error?.message || JSON.stringify(valuesJson)
       }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+
+    // Validador de célula vazia/inválida para evitar sobrescrever dados com null/espaço em branco
+    const cleanCellStr = (val: any): string | undefined => {
+      if (val === undefined || val === null) return undefined;
+      const str = String(val).trim();
+      if (str === '' || str === '-' || str.toUpperCase() === 'N/A' || str.includes('#REF!') || str.includes('#N/A')) {
+        return undefined;
+      }
+      return str;
+    };
 
     const rawRows: any[][] = valuesJson.values || [];
     const rows: MonitoringSheetRow[] = [];
@@ -247,13 +257,27 @@ Deno.serve(async (req: Request) => {
 
       const ultimaResposta = rowValues[5] !== undefined ? String(rowValues[5]).trim() : '';
 
-      const parsedRow: MonitoringSheetRow = {
+      // Mapeamento das 6 novas colunas de contato e links (Colunas G a L)
+      const email1 = cleanCellStr(rowValues[6]);
+      const email2 = cleanCellStr(rowValues[7]);
+      const email3 = cleanCellStr(rowValues[8]);
+      const phone = cleanCellStr(rowValues[9]);
+      const employeeSurveyUrl = cleanCellStr(rowValues[10]);
+      const managerSurveyUrl = cleanCellStr(rowValues[11]);
+
+      const parsedRow: any = {
         empresa,
         colab,
         gestor,
         totalColaboradores,
         percentual,
-        ultimaResposta
+        ultimaResposta,
+        email1,
+        email2,
+        email3,
+        phone,
+        employeeSurveyUrl,
+        managerSurveyUrl
       };
 
       rows.push(parsedRow);
@@ -268,6 +292,12 @@ Deno.serve(async (req: Request) => {
         totalEmployees: totalColaboradores,
         lastResponseDate: ultimaResposta,
         percentual,
+        email1,
+        email2,
+        email3,
+        phone,
+        employeeSurveyUrl,
+        managerSurveyUrl,
         collabRows: [],
         managerRows: []
       };

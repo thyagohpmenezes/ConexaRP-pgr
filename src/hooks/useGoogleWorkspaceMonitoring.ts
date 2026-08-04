@@ -30,6 +30,10 @@ export interface MonitoringSurveyItem {
   lastResponseDateStr?: string;
   employeeFormUrl?: string;
   managerFormUrl?: string;
+  email1?: string;
+  email2?: string;
+  email3?: string;
+  phone?: string;
   folderPath: string[];
   isLinked: boolean;
   folderId: string;
@@ -85,7 +89,10 @@ export function setPersistedTabulatedState(surveyId: string): void {
   } catch {}
 }
 
-export function useGoogleWorkspaceMonitoring(companies: Company[] = []) {
+export function useGoogleWorkspaceMonitoring(
+  companies: Company[] = [],
+  onUpdateCompany?: (id: string, updates: Partial<Company>) => Promise<any>
+) {
   const [rootFolderId, setRootFolderId] = useState<string>(() => googleWorkspaceBackendService.getMasterSheetId());
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -148,6 +155,12 @@ export function useGoogleWorkspaceMonitoring(companies: Company[] = []) {
           totalEmployees: totalColaboradores,
           percentual,
           lastResponseDate,
+          email1: r.email1,
+          email2: r.email2,
+          email3: r.email3,
+          phone: r.phone,
+          employeeSurveyUrl: r.employeeSurveyUrl,
+          managerSurveyUrl: r.managerSurveyUrl,
           collabRows: [],
           managerRows: []
         });
@@ -164,14 +177,34 @@ export function useGoogleWorkspaceMonitoring(companies: Company[] = []) {
 
       const manualLinkedCompanyId = getPersistedCompanyLink(itemId);
 
+      // Sanitizador e normalizador de nomes de empresa para ignorar pontuações, acentos e sufixos jurídicos (ex: LTDA, S.A., ME, EPP)
+      const normalizeCompName = (str: string) => {
+        return str
+          .toUpperCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^A-Z0-9\s]/g, '')
+          .replace(/\b(LTDA|SA|ME|EPP|EIRELI|SS)\b/g, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+      };
+
+      const cleanSheetComp = normalizeCompName(compName);
+
       // Busca correspondência com empresas cadastradas no ConexaRP (manual ou automática)
       let matchedCompany = manualLinkedCompanyId 
         ? companyList.find(c => c.id === manualLinkedCompanyId)
-        : companyList.find(c =>
-            c.name.toUpperCase().trim() === compNameUpper ||
-            c.name.toUpperCase().trim().includes(compNameUpper) ||
-            compNameUpper.includes(c.name.toUpperCase().trim())
-          );
+        : companyList.find(c => {
+            const dbNameUpper = c.name.toUpperCase().trim();
+            const cleanDbComp = normalizeCompName(c.name);
+            return (
+              dbNameUpper === compNameUpper ||
+              dbNameUpper.includes(compNameUpper) ||
+              compNameUpper.includes(dbNameUpper) ||
+              (cleanSheetComp.length > 2 && cleanDbComp === cleanSheetComp) ||
+              (cleanSheetComp.length > 2 && (cleanDbComp.includes(cleanSheetComp) || cleanSheetComp.includes(cleanDbComp)))
+            );
+          });
 
       const isLinked = Boolean(matchedCompany);
       if (isLinked) {
@@ -195,6 +228,33 @@ export function useGoogleWorkspaceMonitoring(companies: Company[] = []) {
       const effectiveCompanyStatus = isTabulatedPersisted ? 'COMPLETED' : companySurveyStatus;
       const overallStatus = calculateOverallStatus(participationPercentage, mngResponses, effectiveCompanyStatus, isTabulatedPersisted);
 
+      // Links e contatos extraídos da Planilha Mestra
+      const email1 = compSummary.email1;
+      const email2 = compSummary.email2;
+      const email3 = compSummary.email3;
+      const phone = compSummary.phone;
+      const employeeFormUrl = compSummary.employeeSurveyUrl || matchedCompany?.employeeSurveyUrl;
+      const managerFormUrl = compSummary.managerSurveyUrl || matchedCompany?.managerSurveyUrl;
+
+      // Requisito 2: Se encontrou empresa no ConexaRP e callback de atualização existe, aplica os novos valores não-nulos
+      if (matchedCompany && onUpdateCompany) {
+        const updatesToApply: Partial<Company> = {};
+        if (email1 && email1.trim() && matchedCompany.email1 !== email1.trim()) updatesToApply.email1 = email1.trim();
+        if (email2 && email2.trim() && matchedCompany.email2 !== email2.trim()) updatesToApply.email2 = email2.trim();
+        if (email3 && email3.trim() && matchedCompany.email3 !== email3.trim()) updatesToApply.email3 = email3.trim();
+        if (phone && phone.trim() && matchedCompany.phone !== phone.trim()) updatesToApply.phone = phone.trim();
+        if (compSummary.employeeSurveyUrl && compSummary.employeeSurveyUrl.trim() && matchedCompany.employeeSurveyUrl !== compSummary.employeeSurveyUrl.trim()) {
+          updatesToApply.employeeSurveyUrl = compSummary.employeeSurveyUrl.trim();
+        }
+        if (compSummary.managerSurveyUrl && compSummary.managerSurveyUrl.trim() && matchedCompany.managerSurveyUrl !== compSummary.managerSurveyUrl.trim()) {
+          updatesToApply.managerSurveyUrl = compSummary.managerSurveyUrl.trim();
+        }
+
+        if (Object.keys(updatesToApply).length > 0) {
+          onUpdateCompany(matchedCompany.id, updatesToApply);
+        }
+      }
+
       items.push({
         id: itemId,
         folderId: itemId,
@@ -211,6 +271,12 @@ export function useGoogleWorkspaceMonitoring(companies: Company[] = []) {
         overallStatus,
         lastSyncedAt: new Date(syncResult.scannedAt || Date.now()),
         lastResponseDateStr: compSummary.lastResponseDate,
+        employeeFormUrl,
+        managerFormUrl,
+        email1: email1 || matchedCompany?.email1,
+        email2: email2 || matchedCompany?.email2,
+        email3: email3 || matchedCompany?.email3,
+        phone: phone || matchedCompany?.phone,
         folderPath: ['Planilha Mestra', compName],
         isLinked,
         collabRows: compSummary.collabRows,
@@ -220,7 +286,7 @@ export function useGoogleWorkspaceMonitoring(companies: Company[] = []) {
 
     console.log(`📊 [Planilha Mestra Sync] Total de empresas encontradas na Planilha Mestra: ${summaryEntries.length}`);
     return items;
-  }, []);
+  }, [onUpdateCompany]);
 
   // Sincronização remota via Supabase Edge Function com suporte SWR
   const fetchSyncData = useCallback(async (customSheetId?: string, forceRefresh = false) => {
@@ -305,6 +371,21 @@ export function useGoogleWorkspaceMonitoring(companies: Company[] = []) {
     } catch {}
 
     const targetCompany = companies.find(c => c.id === companyId);
+    const item = surveyItems.find(i => i.id === surveyItemId);
+
+    if (targetCompany && item && onUpdateCompany) {
+      const updatesToApply: Partial<Company> = {};
+      if (item.email1 && item.email1.trim()) updatesToApply.email1 = item.email1.trim();
+      if (item.email2 && item.email2.trim()) updatesToApply.email2 = item.email2.trim();
+      if (item.email3 && item.email3.trim()) updatesToApply.email3 = item.email3.trim();
+      if (item.phone && item.phone.trim()) updatesToApply.phone = item.phone.trim();
+      if (item.employeeFormUrl && item.employeeFormUrl.trim()) updatesToApply.employeeSurveyUrl = item.employeeFormUrl.trim();
+      if (item.managerFormUrl && item.managerFormUrl.trim()) updatesToApply.managerSurveyUrl = item.managerFormUrl.trim();
+
+      if (Object.keys(updatesToApply).length > 0) {
+        onUpdateCompany(companyId, updatesToApply);
+      }
+    }
 
     setSurveyItems(prev => prev.map(item => {
       if (item.id === surveyItemId) {
@@ -318,7 +399,7 @@ export function useGoogleWorkspaceMonitoring(companies: Company[] = []) {
       }
       return item;
     }));
-  }, [companies]);
+  }, [companies, surveyItems, onUpdateCompany]);
 
   const updateTotalEmployees = useCallback(async (surveyItemId: string, companyName: string, newTotal: number) => {
     if (newTotal < 0) return;

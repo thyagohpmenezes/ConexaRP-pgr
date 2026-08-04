@@ -308,6 +308,7 @@ export default function App() {
               companies={companies}
               assessments={assessments}
               onCreateCompany={handleCreateCompany}
+              onUpdateCompany={updateCompany}
               onNavigateToAssessments={(companyId) => {
                 if (companyId) {
                   setSelectedCompanyId(companyId);
