@@ -169,6 +169,7 @@ export default function App() {
     if (newOrg?.id) {
       setSelectedCompanyId(newOrg.id);
     }
+    return newOrg;
   };
 
   // Exibe a tela de carregamento global APENAS no carregamento inicial sem sessão de usuário

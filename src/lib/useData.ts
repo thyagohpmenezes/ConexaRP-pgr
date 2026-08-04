@@ -130,26 +130,58 @@ export function useData() {
     }
   };
 
-  const createCompany = async (company: Partial<Company>) => {
+  const createCompany = async (company: Partial<Company> & { economicGroupName?: string; employeeCount?: number }) => {
     try {
+      // Monta um payload limpo sem campos desconhecidos pelo schema do Supabase (ex: employeeCount)
+      const payload: Record<string, any> = { 
+        name: company.name || 'Nova Empresa',
+        user_id: user?.id,
+        updated_at: new Date().toISOString() 
+      };
+      if (company.cnpj) payload.cnpj = company.cnpj;
+      if (company.units) payload.units = company.units;
+      if (company.economicGroupName) payload.economic_group_name = company.economicGroupName;
+
       const { error, data } = await supabase
         .from('organizations')
-        .insert({ 
-          ...company, 
-          user_id: user?.id,
-          updated_at: new Date().toISOString() 
-        })
+        .insert(payload)
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        // Fallback caso 'economic_group_name' não exista no schema do Supabase
+        if (error.message && (error.message.includes('column') || error.message.includes('schema cache'))) {
+          const fallbackPayload: Record<string, any> = {
+            name: company.name || 'Nova Empresa',
+            user_id: user?.id,
+            updated_at: new Date().toISOString()
+          };
+          if (company.cnpj) fallbackPayload.cnpj = company.cnpj;
+          if (company.units) fallbackPayload.units = company.units;
+
+          const { error: fallbackError, data: fallbackData } = await supabase
+            .from('organizations')
+            .insert(fallbackPayload)
+            .select()
+            .single();
+
+          if (fallbackError) throw fallbackError;
+          if (fallbackData) {
+            setCompanies(prev => [...prev, fallbackData].sort((a, b) => a.name.localeCompare(b.name)));
+            return fallbackData;
+          }
+        }
+        throw error;
+      }
+
       if (data) {
         setCompanies(prev => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
         return data;
       }
     } catch (e: any) {
+      console.error('[ConexaRP] Erro ao criar empresa:', e);
       alert(`Erro ao criar empresa: ${e.message || 'Erro desconhecido'}`);
-      console.error(e);
+      return undefined;
     }
   };
 

@@ -144,15 +144,30 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({
     setEditingItemId(null);
   };
 
-  const handleQuickCreateCompany = (item: MonitoringSurveyItem) => {
+  const handleQuickCreateCompany = async (item: MonitoringSurveyItem) => {
     if (onCreateCompany) {
-      onCreateCompany({
-        name: item.companyName,
-        economicGroupName: item.economicGroup !== 'Corporativo' && item.economicGroup !== 'Empresas Não Vinculadas' ? item.economicGroup : undefined,
-        employeeCount: item.totalEmployees || 10
-      });
-      item.isLinked = true;
-      setSelectedDrawerItem({ ...item, isLinked: true });
+      try {
+        const created: any = await onCreateCompany({
+          name: item.companyName,
+          economicGroupName: item.economicGroup !== 'Corporativo' && item.economicGroup !== 'Empresas Não Vinculadas' ? item.economicGroup : undefined,
+          employeeCount: item.totalEmployees || 10
+        });
+
+        if (created && created.id) {
+          linkCompanyManual(item.id, created.id);
+          item.isLinked = true;
+          item.companyId = created.id;
+          item.linkedCompanyName = created.name;
+          setSelectedDrawerItem({ 
+            ...item, 
+            isLinked: true, 
+            companyId: created.id, 
+            linkedCompanyName: created.name 
+          });
+        }
+      } catch (err) {
+        console.error('[ConexaRP] Falha ao vincular/criar empresa:', err);
+      }
     }
   };
 
