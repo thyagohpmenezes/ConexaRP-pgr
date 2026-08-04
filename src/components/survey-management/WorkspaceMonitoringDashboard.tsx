@@ -37,7 +37,9 @@ import {
   ArrowRight,
   ShieldCheck,
   Link2,
-  FileText
+  FileText,
+  MessageCircle,
+  Mail
 } from 'lucide-react';
 
 interface Props {
@@ -213,6 +215,56 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({
       minute: '2-digit',
       second: '2-digit',
     });
+  };
+
+  const generateReminderMessage = (item: MonitoringSurveyItem): string => {
+    const companyName = item.companyName || 'Sua Empresa';
+    const respColab = item.employeeResponses || 0;
+    const respGestor = item.managerResponses || 0;
+    const progresso = `${item.participationPercentage || 0}%`;
+    const linkColab = item.employeeFormUrl || '[INSERIR_LINK_SISTEMA_COLAB]';
+    const linkGestor = item.managerFormUrl || '[INSERIR_LINK_SISTEMA_GESTOR]';
+
+    return `Olá, tudo bem?
+Passando para compartilhar como está o andamento das Pesquisas de Avaliação de Riscos Psicossociais na sua empresa.
+Sabemos que a rotina é corrida, mas a participação de todos é fundamental para mapearmos o cenário atual e traçarmos estratégias eficientes para a saúde mental e o clima organizacional da ${companyName}.
+
+Aqui está o nosso balanço mais recente:
+📊 Status de Engajamento Atual
+
+Empresa: ${companyName}
+Respostas de Colaboradores: ${respColab} respostas
+Respostas de Gestores: ${respGestor} respostas
+Taxa de Adesão Geral: ${progresso}
+
+Obs: O mínimo para iniciarmos a tabulação é 70%.
+
+🚀 Como podemos aumentar essa participação?
+Para nos ajudar a alcançar uma amostra ainda mais segura e representativa, sugerimos enviar um reforço rápido nos canais internos da empresa (WhatsApp, Teams/Slack ou e-mail corporativo).
+
+Caso precise reenviar os acessos, aqui estão os links diretos para cada público:
+🔗 Link para Colaboradores: ${linkColab}
+🔗 Link para Gestores: ${linkGestor}
+    
+⚠️ Lembrete: A pesquisa é totalmente confidencial. As respostas individuais não serão compartilhadas, garantindo a segurança e o anonimato de todos os participantes.
+ 
+Agradecemos desde já pela parceria de sempre na promoção do bem-estar.
+Atenciosamente,`;
+  };
+
+  const handleOpenWhatsApp = (item: MonitoringSurveyItem, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const message = generateReminderMessage(item);
+    const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleOpenEmail = (item: MonitoringSurveyItem, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const message = generateReminderMessage(item);
+    const subject = `Andamento das Pesquisas Psicossociais - ${item.companyName}`;
+    const url = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`;
+    window.location.href = url;
   };
 
   const renderOverallStatusBadge = (status: OverallSurveyStatus, isSavedReport = false) => {
@@ -429,18 +481,18 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({
       </div>
 
       {/* Tabela de Acompanhamento Único da Planilha Mestra */}
-      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+      <div className="bg-white rounded-3xl border border-slate-200/80 shadow-md shadow-slate-200/40 overflow-hidden w-full">
+        <div className="overflow-x-auto w-full">
+          <table className="w-full text-left border-collapse table-auto">
             <thead>
-              <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                <th className="py-4 px-6">Empresa (Coluna A)</th>
-                <th className="py-4 px-6">Colab (Coluna B)</th>
-                <th className="py-4 px-6">Gestor (Coluna C)</th>
-                <th className="py-4 px-6">Quadro (Coluna D)</th>
-                <th className="py-4 px-6">Progresso % (Coluna E)</th>
-                <th className="py-4 px-6">Situação Geral</th>
-                <th className="py-4 px-6 text-right">Ação</th>
+              <tr className="bg-slate-50/90 border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                <th className="py-4 px-6 w-[28%] min-w-[220px]">EMPRESA (COLUNA A)</th>
+                <th className="py-4 px-3 w-[8%] text-center min-w-[80px]">COLAB</th>
+                <th className="py-4 px-3 w-[10%] text-center min-w-[100px]">GESTOR</th>
+                <th className="py-4 px-3 w-[10%] text-center min-w-[100px]">QUADRO</th>
+                <th className="py-4 px-5 w-[14%] min-w-[140px]">PROGRESSO %</th>
+                <th className="py-4 px-5 w-[20%] min-w-[180px]">SITUAÇÃO GERAL</th>
+                <th className="py-4 px-6 w-[10%] text-right min-w-[140px]">AÇÃO</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs">
@@ -483,21 +535,21 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({
                     </td>
 
                     {/* Coluna B: Colab */}
-                    <td className="py-5 px-6">
+                    <td className="py-5 px-3 text-center">
                       <span className="font-black text-slate-800 text-sm">
                         {item.employeeResponses} <span className="text-[10px] font-bold text-slate-400">resp.</span>
                       </span>
                     </td>
 
                     {/* Coluna C: Gestor */}
-                    <td className="py-5 px-6">
+                    <td className="py-5 px-3 text-center">
                       {item.managerResponses > 0 ? (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-lg text-[10px] font-black uppercase">
+                        <span className="inline-flex items-center justify-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-lg text-[10px] font-black uppercase">
                           <CheckCircle2 size={12} className="text-emerald-600" />
                           {item.managerResponses} {item.managerResponses === 1 ? 'resp.' : 'resp.'}
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-yellow-50 text-yellow-900 border border-yellow-300 rounded-lg text-[10px] font-black uppercase">
+                        <span className="inline-flex items-center justify-center gap-1.5 px-2.5 py-1 bg-yellow-50 text-yellow-900 border border-yellow-300 rounded-lg text-[10px] font-black uppercase">
                           <Clock size={12} className="text-yellow-600" />
                           0 (Pendente)
                         </span>
@@ -505,9 +557,9 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({
                     </td>
 
                     {/* Coluna D: Quadro (Total Colaboradores - Editável no Google Sheets) */}
-                    <td className="py-5 px-6">
+                    <td className="py-5 px-3 text-center">
                       {editingItemId === item.id ? (
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center justify-center gap-1">
                           <input
                             type="number"
                             min="0"
@@ -517,7 +569,7 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({
                               if (e.key === 'Enter') handleSaveTotal(item);
                               if (e.key === 'Escape') setEditingItemId(null);
                             }}
-                            className="w-20 px-2 py-1 bg-white border-2 border-emerald-500 rounded-lg text-xs font-black text-slate-900 focus:outline-none shadow-sm"
+                            className="w-20 px-2 py-1 bg-white border-2 border-emerald-500 rounded-lg text-xs font-black text-slate-900 focus:outline-none shadow-sm text-center"
                             autoFocus
                           />
                           <button
@@ -534,7 +586,7 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({
                             setEditingItemId(item.id);
                             setEditingTotalValue(String(item.totalEmployees));
                           }}
-                          className="group/edit inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 rounded-xl transition-all text-left"
+                          className="group/edit inline-flex items-center justify-center gap-1.5 px-2.5 py-1 bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 rounded-xl transition-all"
                           title="Clique para editar a Coluna D e salvar no Google Sheets"
                         >
                           <span className="font-bold text-slate-800 text-xs">
@@ -546,7 +598,7 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({
                     </td>
 
                     {/* Coluna E: Progresso % (Com badge verde para 100%) */}
-                    <td className="py-5 px-6">
+                    <td className="py-5 px-5">
                       <div className="space-y-1 max-w-[140px]">
                         {item.participationPercentage >= 100 ? (
                           <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-100 border border-emerald-300 text-emerald-800 rounded-full text-xs font-black shadow-sm">
@@ -574,16 +626,37 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({
                     </td>
 
                     {/* Situação Geral da Pesquisa Psicossocial */}
-                    <td className="py-5 px-6">
+                    <td className="py-5 px-5">
                       {renderOverallStatusBadge(item.overallStatus, hasSavedReport(item))}
                     </td>
 
                     {/* Ação */}
-                    <td className="py-5 px-6 text-right">
-                      <div className="flex items-center justify-end gap-2">
+                    <td className="py-5 px-6 text-right" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center justify-end gap-1.5 sm:gap-2">
+                        {/* Botão de Contato WhatsApp */}
                         <button
+                          type="button"
+                          onClick={(e) => handleOpenWhatsApp(item, e)}
+                          className="p-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 hover:text-emerald-700 rounded-xl border border-emerald-200/70 shadow-2xs hover:shadow-xs transition-all active:scale-95 flex items-center justify-center group/wa"
+                          title="Enviar lembrete de cobrança via WhatsApp"
+                        >
+                          <MessageCircle size={15} className="group-hover/wa:scale-110 transition-transform" />
+                        </button>
+
+                        {/* Botão de Contato E-mail */}
+                        <button
+                          type="button"
+                          onClick={(e) => handleOpenEmail(item, e)}
+                          className="p-2 bg-blue-50 hover:bg-blue-100 text-blue-600 hover:text-blue-700 rounded-xl border border-blue-200/70 shadow-2xs hover:shadow-xs transition-all active:scale-95 flex items-center justify-center group/mail"
+                          title="Enviar lembrete de cobrança via E-mail"
+                        >
+                          <Mail size={15} className="group-hover/mail:scale-110 transition-transform" />
+                        </button>
+
+                        <button
+                          type="button"
                           onClick={() => handleOpenDrawer(item)}
-                          className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all"
+                          className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all active:scale-95 flex items-center justify-center"
                           title="Ver detalhes da empresa"
                         >
                           <ExternalLink size={14} />
@@ -591,22 +664,24 @@ export const WorkspaceMonitoringDashboard: React.FC<Props> = ({
 
                         {hasSavedReport(item) ? (
                           <button
+                            type="button"
                             onClick={() => handleExecuteTabulation(item)}
-                            className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-wider shadow-lg shadow-blue-600/20 transition-all active:scale-95 flex items-center gap-1.5"
+                            className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-wider shadow-lg shadow-blue-600/20 transition-all active:scale-95 flex items-center gap-1.5 shrink-0"
                             title="Empresa possui relatórios salvos. Clique para visualizar no Inventário"
                           >
                             <BarChart3 size={14} /> Visualizar Relatório
                           </button>
                         ) : item.overallStatus === 'READY_FOR_TABULATION' || item.companySurveyStatus === 'COMPLETED' ? (
                           <button
+                            type="button"
                             onClick={() => handleExecuteTabulation(item)}
-                            className="bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-2 rounded-xl font-black text-[10px] uppercase tracking-wider shadow-lg shadow-emerald-600/20 transition-all active:scale-95 flex items-center gap-1.5"
+                            className="bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-2 rounded-xl font-black text-[10px] uppercase tracking-wider shadow-lg shadow-emerald-600/20 transition-all active:scale-95 flex items-center gap-1.5 shrink-0"
                             title="Validar pesquisas e direcionar para Avaliações (GRO/PGR)"
                           >
                             <FileCheck2 size={14} /> Validar & Tabular
                           </button>
                         ) : (
-                          <span className="text-[10px] font-bold text-slate-400 uppercase italic">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase italic px-1">
                             Aguardando
                           </span>
                         )}

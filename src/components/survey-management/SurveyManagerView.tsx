@@ -20,7 +20,7 @@ export const SurveyManagerView: React.FC<Props> = ({
   onNavigateToInventory,
 }) => {
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-12">
+    <div className="space-y-6 w-full pb-12">
       <WorkspaceMonitoringDashboard 
         companies={companies}
         assessments={assessments}
