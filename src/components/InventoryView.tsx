@@ -117,8 +117,10 @@ export default function InventoryView({ assessments, companies, selectedCompanyI
 
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(inventory), "Inventário PGR");
 
-    const safeName = (a.unitId || 'Matriz').replace(/\s+/g, '_');
-    XLSX.writeFile(workbook, `Relatorio_Conexa_${safeName}.xlsx`);
+    const matchedCompany = companies.find(c => c.id === a.companyId);
+    const companyNameText = matchedCompany?.name || a.unitId || 'Empresa';
+    const cleanCompanyName = companyNameText.replace(/[\/:*?"<>|]/g, '').trim();
+    XLSX.writeFile(workbook, `Relatório Psicossocial - ${cleanCompanyName}.xlsx`);
   };
 
   // Expande cada avaliação em linhas de perigos específicos, incluindo quebras por setor se houver

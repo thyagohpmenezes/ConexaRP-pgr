@@ -208,7 +208,18 @@ export default function ReportGenerator({
       const inventorySheet = XLSX.utils.aoa_to_sheet(inventoryRows);
       XLSX.utils.book_append_sheet(workbook, inventorySheet, "Inventario_Riscos_PGR");
 
-      XLSX.writeFile(workbook, `Relatorio_Psicossocial_${(unitName || assessment.unitId || 'Matriz').replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`);
+      const cleanCompanyName = (companyName || assessment.companyId || unitName || assessment.unitId || 'Empresa').replace(/[\/:*?"<>|]/g, '').trim();
+      XLSX.writeFile(workbook, `Relatório Psicossocial - ${cleanCompanyName}.xlsx`);
+   };
+
+   const handlePrintPDF = () => {
+      const originalTitle = document.title;
+      const cleanCompanyName = (companyName || assessment.companyId || unitName || assessment.unitId || 'Empresa').replace(/[\/:*?"<>|]/g, '').trim();
+      document.title = `Relatório Psicossocial - ${cleanCompanyName}`;
+      window.print();
+      setTimeout(() => {
+         document.title = originalTitle;
+      }, 1000);
    };
 
    return (
@@ -236,7 +247,7 @@ export default function ReportGenerator({
                      Excel
                   </button>
                   <button
-                     onClick={() => window.print()}
+                     onClick={handlePrintPDF}
                      className="flex items-center gap-2 px-3 py-1.5 bg-slate-900 text-white rounded text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-sm active:scale-95"
                   >
                      <Download size={14} />
