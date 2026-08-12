@@ -80,7 +80,9 @@ export default function ReportGenerator({
           if (!hierarchy[uName]) hierarchy[uName] = {};
           Object.entries(sectors).forEach(([sName, sData]) => {
              const sCritical = sData.domains.filter(d => d.employeeMean >= 3.0);
-             const sHazards = sCritical.flatMap(cd => HAZARD_MASTER.filter(h => h.domainId === cd.id));
+             const rawHazards = sCritical.flatMap(cd => HAZARD_MASTER.filter(h => h.domainId === cd.id));
+             // Deduplica perigos com o mesmo nome no setor
+             const sHazards = Array.from(new Map(rawHazards.map(h => [h.hazard, h])).values());
              if (sHazards.length > 0) {
                 hierarchy[uName][sName] = { rowCount: sData.rowCount || 0, hazards: sHazards };
              }
@@ -132,35 +134,81 @@ export default function ReportGenerator({
 
       // 1. Aba Resumo
       const summaryData = [
-         ['RELATÓRIO DE AVALIAÇÃO PSICOSSOCIAL'],
-         ['Data:', new Date().toLocaleDateString()],
-         ['Unidade:', assessment.unitId],
+         ['RELATÓRIO DE AVALIAÇÃO PSICOSSOCIAL - METODOLOGIA RP'],
+         ['Data:', new Date().toLocaleDateString('pt-BR')],
+         ['Empresa:', companyName || 'Não informada'],
+         ['Unidade:', unitName || assessment.unitId || 'Matriz'],
+         ['GES / Foco:', assessment.gesId || 'Todos'],
          [],
          ['RESULTADOS DA TRIANGULAÇÃO'],
          ['Índice de Triangulação (Risco)', triangulationScore.toFixed(3)],
-         ['Score de Risco', riskScore, getRiskLabel(riskScore)],
+         ['Score de Risco (Matriz 5x5)', riskScore, getRiskLabel(riskScore)],
          ['Probabilidade', probability],
          ['Severidade', severity],
          [],
-         ['DIVERGÊNCIAS (Δ > 1.0)'],
-         ...divergentDomains.map(d => [d.name, `Δ ${Math.abs(d.employeeMean - d.managerMean).toFixed(1)}`]),
+         ['DIVERGÊNCIAS ENTRE GESTÃO E COLABORADORES (Δ ≥ 1.0)'],
+         ...(divergentDomains.length > 0
+            ? divergentDomains.map(d => [d.name, `Δ ${Math.abs(d.employeeMean - d.managerMean).toFixed(1)}`, `Média Colab: ${d.employeeMean.toFixed(2)} | Média Gestor: ${d.managerMean.toFixed(2)}`])
+            : [['Nenhuma divergência crítica identificada entre as visões gerenciais e operacionais.']])
       ];
       const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
       XLSX.utils.book_append_sheet(workbook, summarySheet, "Resumo");
 
-      // 2. Aba Inventário
-      const inventoryRows = [['UNIDADE', 'SETOR', 'PERIGO', 'RISCO (DESCRIÇÃO)', 'DANOS / AGRAVOS']];
-      Object.entries(inventoryHierarchy).forEach(([unit, sectors]) => {
-         Object.entries(sectors).forEach(([sector, data]) => {
-            data.hazards.forEach(h => {
-               inventoryRows.push([unit, sector, h.hazard, h.risk, h.possibleDamages]);
+      // 2. Aba Inventário de Riscos PGR
+      const inventoryRows: any[] = [['UNIDADE', 'SETOR', 'PERIGO', 'RISCO (DESCRIÇÃO)', 'DANOS / AGRAVOS']];
+
+      const uName = companyName || assessment.unitId || 'MATRIZ';
+
+      // Inclui apenas perigos de domínios críticos (média >= 3.0) OU com divergência real de percepção (Δ >= 1.0)
+      const isDomainRelevant = (d: any) => {
+         const empMean = d.employeeMean || 0;
+         const globalDomain = effectiveDomains.find(gd => gd.id === d.id);
+         const mgrMean = (d.managerMean && d.managerMean > 0) ? d.managerMean : (globalDomain?.managerMean || 0);
+
+         const isCritical = empMean >= 3.0;
+         const hasDivergence = empMean > 0 && mgrMean > 0 && Math.abs(empMean - mgrMean) >= 1.0;
+
+         return isCritical || hasDivergence;
+      };
+
+      if (assessment.unitBreakdown && Object.keys(assessment.unitBreakdown).length > 0) {
+         Object.entries(assessment.unitBreakdown).forEach(([unitKey, uData]) => {
+            const sectors = uData.sectors || {};
+            Object.entries(sectors).forEach(([sName, sData]) => {
+               const relevantDomains = (sData.domains || []).filter(isDomainRelevant);
+               relevantDomains.forEach(d => {
+                  const hazards = HAZARD_MASTER.filter(h => h.domainId === d.id);
+                  hazards.forEach(h => {
+                     inventoryRows.push([unitKey, sName, h.hazard, h.risk, h.possibleDamages]);
+                  });
+               });
             });
          });
-      });
-      const inventorySheet = XLSX.utils.aoa_to_sheet(inventoryRows);
-      XLSX.utils.book_append_sheet(workbook, inventorySheet, "Inventario_Riscos");
+      } else if (assessment.sectorBreakdown && Object.keys(assessment.sectorBreakdown).length > 0) {
+         Object.entries(assessment.sectorBreakdown).forEach(([sName, sData]) => {
+            const relevantDomains = (sData.domains || []).filter(isDomainRelevant);
+            relevantDomains.forEach(d => {
+               const hazards = HAZARD_MASTER.filter(h => h.domainId === d.id);
+               hazards.forEach(h => {
+                  inventoryRows.push([uName, sName, h.hazard, h.risk, h.possibleDamages]);
+               });
+            });
+         });
+      } else {
+         const sName = 'GERAL (EMPRESA)';
+         const relevantDomains = effectiveDomains.filter(isDomainRelevant);
+         relevantDomains.forEach(d => {
+            const hazards = HAZARD_MASTER.filter(h => h.domainId === d.id);
+            hazards.forEach(h => {
+               inventoryRows.push([uName, sName, h.hazard, h.risk, h.possibleDamages]);
+            });
+         });
+      }
 
-      XLSX.writeFile(workbook, `Relatorio_Psicossocial_${assessment.unitId}_${new Date().toISOString().split('T')[0]}.xlsx`);
+      const inventorySheet = XLSX.utils.aoa_to_sheet(inventoryRows);
+      XLSX.utils.book_append_sheet(workbook, inventorySheet, "Inventario_Riscos_PGR");
+
+      XLSX.writeFile(workbook, `Relatorio_Psicossocial_${(unitName || assessment.unitId || 'Matriz').replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`);
    };
 
    return (
@@ -219,11 +267,52 @@ export default function ReportGenerator({
             </div>
          </section>
 
-         {/* 2. Resultados da Triangulação */}
+         {/* 2. Fundamentação Metodológica e Fontes de Evidência */}
+         <section className="space-y-3">
+            <h2 className="text-[11px] font-black flex items-center gap-2 text-slate-800 uppercase tracking-widest border-l-4 border-indigo-600 pl-2">
+               <CheckCircle size={12} className="text-indigo-600" />
+               2. Metodologia de Avaliação e Fontes de Evidência
+            </h2>
+            <div className="p-4 bg-slate-50/80 border border-slate-200 rounded-xl space-y-3 text-xs">
+               <p className="text-[10px] text-slate-600 font-medium leading-relaxed">
+                  Esta avaliação foi conduzida sob o protocolo da <strong>Metodologia RP</strong>, fundamentada nos requisitos técnicos da <strong>NR-1 (Gerenciamento de Riscos Ocupacionais - GRO)</strong>, 
+                  <strong> Portaria MTE nº 1.419/2024</strong> e diretrizes da <strong>ABNT ISO 45003:2021</strong>. 
+                  O diagnóstico utiliza o método de <strong>Triangulação de Evidências</strong> para integrar visões operacionais, gerenciais e conformidade documental.
+               </p>
+               
+               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+                  <div className="p-3 bg-white border border-slate-200 rounded-lg space-y-1">
+                     <div className="flex justify-between items-center">
+                        <span className="text-[9px] font-black uppercase text-slate-700">Eixo 1: Colaboradores</span>
+                        <span className="text-[9px] font-black px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded">Peso 4</span>
+                     </div>
+                     <p className="text-[10px] text-slate-500 font-medium leading-normal">Coleta direta da percepção da equipe operacional sobre carga de trabalho, ritmos e ambiente interpessoal.</p>
+                  </div>
+
+                  <div className="p-3 bg-white border border-slate-200 rounded-lg space-y-1">
+                     <div className="flex justify-between items-center">
+                        <span className="text-[9px] font-black uppercase text-slate-700">Eixo 2: Gestores</span>
+                        <span className="text-[9px] font-black px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded">Peso 3</span>
+                     </div>
+                     <p className="text-[10px] text-slate-500 font-medium leading-normal">Visão estratégica da liderança quanto ao suporte organizacional, metas e alinhamento de processos.</p>
+                  </div>
+
+                  <div className="p-3 bg-white border border-slate-200 rounded-lg space-y-1">
+                     <div className="flex justify-between items-center">
+                        <span className="text-[9px] font-black uppercase text-slate-700">Eixo 3: Checklist</span>
+                        <span className="text-[9px] font-black px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded">Peso 4</span>
+                     </div>
+                     <p className="text-[10px] text-slate-500 font-medium leading-normal">Verificação de programas de prevenção, ergonomia, canais de escuta e conformidade regulatória da empresa.</p>
+                  </div>
+               </div>
+            </div>
+         </section>
+
+         {/* 3. Resultados da Triangulação */}
          <section className="space-y-4">
             <h2 className="text-[11px] font-black flex items-center gap-2 text-slate-800 uppercase tracking-widest border-l-4 border-blue-600 pl-2">
                <BarChart3 size={12} className="text-blue-600" />
-               2. Resultados da Triangulação (Nível {assessment.sectorId || 'Global'})
+               3. Resultados da Triangulação (Nível {assessment.sectorId || 'Global'})
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                <div className="p-3 border border-slate-200 rounded">
@@ -243,11 +332,11 @@ export default function ReportGenerator({
             </div>
          </section>
 
-         {/* 3. Inventário PGR Detalhado por Setor (Solicitação Principal do Usuário) */}
+         {/* 4. Inventário PGR Detalhado por Setor */}
          <section className="space-y-3">
             <h2 className="text-[11px] font-black flex items-center gap-2 text-slate-800 uppercase tracking-widest border-l-4 border-rose-600 pl-2">
                <AlertTriangle size={12} className="text-rose-600" />
-               3. Inventário de Fatores Críticos - Classificação Individual
+               4. Inventário de Fatores Críticos - Classificação Individual
             </h2>
             <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-4">Mapeamento de perigos psicossociais isolados por departamento para inclusão no PGR.</p>
 
@@ -347,11 +436,11 @@ export default function ReportGenerator({
             </div>
          </section>
 
-         {/* 4. Análise de Divergência (Gestão vs Colaboradores) */}
+         {/* 5. Análise de Divergência (Gestão vs Colaboradores) */}
          <section className="space-y-4">
             <h2 className="text-[11px] font-black flex items-center gap-2 text-slate-800 uppercase tracking-widest border-l-4 border-amber-500 pl-2">
                <Search size={12} className="text-amber-500" />
-               4. Análise de Divergência (Gestão vs Colaboradores)
+               5. Análise de Divergência (Gestão vs Colaboradores)
             </h2>
             <div className="bg-slate-50 border border-slate-100 rounded p-4">
                <div className="space-y-2">
@@ -367,11 +456,11 @@ export default function ReportGenerator({
             </div>
          </section>
 
-         {/* 5. Recomendações Dinâmicas Personalizadas */}
+         {/* 6. Recomendações Dinâmicas Personalizadas */}
          <section className="space-y-3">
             <h2 className="text-[11px] font-black flex items-center gap-2 text-slate-800 uppercase tracking-widest border-l-4 border-emerald-600 pl-2">
                <ClipboardList size={12} className="text-emerald-600" />
-               5. Recomendações e Plano de Ação Personalizado
+               6. Recomendações e Plano de Ação Personalizado
             </h2>
             <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-2">Medidas de controle sugeridas com base nos fatores críticos identificados nos setores.</p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

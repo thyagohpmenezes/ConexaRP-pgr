@@ -422,6 +422,7 @@ Recalcular `probabilidade` e `severidade` com base no score residual para obter 
 
 ## 10. Catálogo de Perigos, Riscos e Danos
 
+
 Use esta tabela como referência para preenchimento automático dos campos "Risco" e "Danos" no inventário, a partir do perigo identificado na triangulação.
 
 | Perigo | Risco (descrição técnica) | Danos / Agravos |

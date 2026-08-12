@@ -52,7 +52,7 @@ export default function InventoryView({ assessments, companies, selectedCompanyI
 
     // 1. Aba Resumo
     const summaryData = [
-      ['RELATÓRIO DE AVALIAÇÃO PSICOSSOCIAL - CONEXA RISK'],
+      ['RELATÓRIO DE AVALIAÇÃO PSICOSSOCIAL - METODOLOGIA RP'],
       ['Unidade:', a.unitId || 'Matriz'],
       ['Data:', new Date(a.updatedAt || a.createdAt || Date.now()).toLocaleDateString('pt-BR')],
       ['Status:', 'CONCLUÍDO'],
@@ -64,28 +64,57 @@ export default function InventoryView({ assessments, companies, selectedCompanyI
     ];
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(summaryData), "Resumo");
 
-    // 2. Aba Inventário por Setor
-    const inventory: any[] = [['SETOR', 'FATOR DE RISCO', 'DESCRIÇÃO DO PERIGO', 'DANOS POSSÍVEIS']];
-    
-    // Global
-    const globalCritical = a.domains.filter(d => d.employeeMean >= 3.0);
-    globalCritical.forEach(cd => {
-      HAZARD_MASTER.filter(h => h.domainId === cd.id).forEach(h => {
-        inventory.push(['GERAL (EMPRESA)', h.hazard, h.risk, h.possibleDamages]);
-      });
-    });
+    // 2. Aba Inventário de Riscos PGR
+    const inventory: any[] = [['UNIDADE', 'SETOR', 'PERIGO', 'RISCO (DESCRIÇÃO)', 'DANOS / AGRAVOS']];
 
-    // Setores
-    if (a.sectorBreakdown) {
-      Object.entries(a.sectorBreakdown).forEach(([sName, sData]) => {
-        const sCritical = sData.domains.filter(d => d.employeeMean >= 3.0);
-        sCritical.forEach(cd => {
-          HAZARD_MASTER.filter(h => h.domainId === cd.id).forEach(h => {
-            inventory.push([sName, h.hazard, h.risk, h.possibleDamages]);
+    const uName = a.unitId || 'MATRIZ';
+
+    const globalDomains = a.domains || [];
+    const isDomainRelevant = (d: any) => {
+      const empMean = d.employeeMean || 0;
+      const globalDomain = globalDomains.find(gd => gd.id === d.id);
+      const mgrMean = (d.managerMean && d.managerMean > 0) ? d.managerMean : (globalDomain?.managerMean || 0);
+
+      const isCritical = empMean >= 3.0;
+      const hasDivergence = empMean > 0 && mgrMean > 0 && Math.abs(empMean - mgrMean) >= 1.0;
+
+      return isCritical || hasDivergence;
+    };
+
+    if (a.unitBreakdown && Object.keys(a.unitBreakdown).length > 0) {
+      Object.entries(a.unitBreakdown).forEach(([unitKey, uData]) => {
+        const sectors = uData.sectors || {};
+        Object.entries(sectors).forEach(([sName, sData]) => {
+          const relevantDomains = (sData.domains || []).filter(isDomainRelevant);
+          relevantDomains.forEach(d => {
+            const hazards = HAZARD_MASTER.filter(h => h.domainId === d.id);
+            hazards.forEach(h => {
+              inventory.push([unitKey, sName, h.hazard, h.risk, h.possibleDamages]);
+            });
           });
         });
       });
+    } else if (a.sectorBreakdown && Object.keys(a.sectorBreakdown).length > 0) {
+      Object.entries(a.sectorBreakdown).forEach(([sName, sData]) => {
+        const relevantDomains = (sData.domains || []).filter(isDomainRelevant);
+        relevantDomains.forEach(d => {
+          const hazards = HAZARD_MASTER.filter(h => h.domainId === d.id);
+          hazards.forEach(h => {
+            inventory.push([uName, sName, h.hazard, h.risk, h.possibleDamages]);
+          });
+        });
+      });
+    } else {
+      const sName = 'GERAL (EMPRESA)';
+      const relevantDomains = (a.domains || []).filter(isDomainRelevant);
+      relevantDomains.forEach(d => {
+        const hazards = HAZARD_MASTER.filter(h => h.domainId === d.id);
+        hazards.forEach(h => {
+          inventory.push([uName, sName, h.hazard, h.risk, h.possibleDamages]);
+        });
+      });
     }
+
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(inventory), "Inventário PGR");
 
     const safeName = (a.unitId || 'Matriz').replace(/\s+/g, '_');
